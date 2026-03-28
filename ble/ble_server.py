@@ -30,6 +30,10 @@ class UmbrellaState:
     mode: str = "Manual"
     moving: bool = False
     connected: bool = True
+    target_latitude: float | None = None
+    target_longitude: float | None = None
+    target_accuracy: float | None = None
+    target_timestamp: str | None = None
 
     def to_bytes(self) -> bytes:
         return json.dumps(asdict(self)).encode("utf-8")
@@ -45,7 +49,7 @@ class UmbrellaBLEPeripheral:
         self.lock = threading.Lock()
         self.status_subscribed = False
         self.ble = peripheral.Peripheral(
-            adapter_addr=adapters[0].address,
+            adapter_address=adapters[0].address,
             local_name=DEVICE_NAME,
             appearance=0,
         )
@@ -78,7 +82,8 @@ class UmbrellaBLEPeripheral:
 
     def stop(self) -> None:
         print("Stopping BLE peripheral")
-        self.ble.unpublish()
+        if hasattr(self.ble, "unpublish"):
+            self.ble.unpublish()
 
     def read_status(self) -> list[int]:
         with self.lock:
@@ -126,6 +131,17 @@ class UmbrellaBLEPeripheral:
                 if isinstance(value, str) and value:
                     self.state.mode = value
                 print(f"Mode command received: {self.state.mode}")
+
+            elif command_type == "location":
+                self.state.target_latitude = command.get("latitude")
+                self.state.target_longitude = command.get("longitude")
+                self.state.target_accuracy = command.get("accuracy")
+                self.state.target_timestamp = command.get("timestamp")
+                print(
+                    "Location received: "
+                    f"{self.state.target_latitude}, {self.state.target_longitude} "
+                    f"(accuracy {self.state.target_accuracy}m at {self.state.target_timestamp})"
+                )
 
             else:
                 print(f"Unknown command: {command}")

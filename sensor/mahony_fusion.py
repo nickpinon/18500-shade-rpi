@@ -27,7 +27,7 @@ class MahonyFilter:
         # J. Remington identifies that the Mag axes are rotated relative to Accel/Gyro.
         ax, ay, az = -a[0], -a[1], a[2]
         gx, gy, gz = -g[0], -g[1], g[2]
-        mx, my, mz = m[1], m[0], -m[2]
+        mx, my, mz = -m[1], -m[0], -m[2]
 
         now = time.time()
         dt = now - self.last_time

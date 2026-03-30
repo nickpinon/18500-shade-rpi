@@ -45,7 +45,7 @@ class UmbrellaBLEPeripheral:
         self.lock = threading.Lock()
         self.status_subscribed = False
         self.ble = peripheral.Peripheral(
-            adapter_addr=adapters[0].address,
+            adapter_address=adapters[0].address,
             local_name=DEVICE_NAME,
             appearance=0,
         )
@@ -78,7 +78,8 @@ class UmbrellaBLEPeripheral:
 
     def stop(self) -> None:
         print("Stopping BLE peripheral")
-        self.ble.unpublish()
+        if hasattr(self.ble, "unpublish"):
+            self.ble.unpublish()
 
     def read_status(self) -> list[int]:
         with self.lock:

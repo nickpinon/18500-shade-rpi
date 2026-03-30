@@ -66,7 +66,7 @@ class LSM9DS1:
         return [x * self.SENS_M_4G for x in raw]
     
     # Calibration Functions 
-    def calibrate(self, samples=32):
+    def calibrate(self, samples=256):
     # Taken from LSM9DS1::calibrate() in C++
 
       print(f"Calibrating Accel & Gyro ({samples} samples)... Keep sensor level and still.")

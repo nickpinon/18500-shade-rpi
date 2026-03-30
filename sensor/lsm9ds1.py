@@ -65,36 +65,70 @@ class LSM9DS1:
         raw = self._read_16bit_vector(self.M_ADDR, reg.OUT_X_L_M)
         return [x * self.SENS_M_4G for x in raw]
     
-    def calibrate_accel(self, samples=32):
-        print("Calibrating accelerometer... Please keep the device still.")
-        ax_total, ay_total, az_total = 0, 0, 0
-        for _ in range(samples):
-            raw = self._read_16bit_vector(self.AG_ADDR, reg.OUT_X_L_XL)
-            ax_total += raw[0]
-            ay_total += raw[1]
-            az_total += raw[2]
-            time.sleep(0.02)
-        
-        self.accel_bias[0] = ax_total / samples
-        self.accel_bias[1] = ay_total / samples
-        self.accel_bias[2] = az_total / samples - (1 / self.SENS_A_2G)  # Subtract 1g for Z-axis
+    # Calibration Functions 
+    def calibrate(self, samples=32):
+    # Taken from LSM9DS1::calibrate() in C++
 
-        print(f"Calibration complete. Biases: {self.accel_bias}")
+      print(f"Calibrating Accel & Gyro ({samples} samples)... Keep sensor level and still.")
+      a_sums = [0, 0, 0]
+      g_sums = [0, 0, 0]
+
+      for _ in range(samples):
+          # Read raw 16-bit values
+          a_raw = self._read_16bit_vector(self.AG_ADDR, reg.OUT_X_L_XL)
+          g_raw = self._read_16bit_vector(self.AG_ADDR, reg.OUT_X_L_G)
+          
+          for i in range(3):
+              a_sums[i] += a_raw[i]
+              g_sums[i] += g_raw[i]
+          
+          time.sleep(0.02)
+
+      # Average the biases
+      self.gyro_bias = [s / samples for s in g_sums]
+      self.accel_bias[0] = a_sums[0] / samples
+      self.accel_bias[1] = a_sums[1] / samples
+      
+      # Adjust Accel Z-axis for gravity: az - (1.0 / aRes)
+      # This assumes the sensor is facing 'up' during calibration.
+      self.accel_bias[2] = (a_sums[2] / samples) - (1.0 / self.SENS_A_2G)
+      
+      print("Calibration complete.")
+      print(f"  Accel Biases (raw): {self.accel_bias}")
+      print(f"  Gyro Biases (raw):  {self.gyro_bias}")
+      
+    def calibrate_mag(self, samples=256):
+        print("Calibrating Magnnetometer. Rotate sensor in all orientations until complete.")
+        # Initialize with the absolute limits of a 16-bit signed integer
+        mag_min = [32767] * 3
+        mag_max = [-32768] * 3
+
+        for _ in range(samples):
+            # Equivalent to readMag() in C++
+            raw = self._read_16bit_vector(self.M_ADDR, reg.OUT_X_L_M)
+            for i in range(3):
+                # Equivalent to the C++ min/max if-statements
+                if raw[i] < mag_min[i]: mag_min[i] = raw[i]
+                if raw[i] > mag_max[i]: mag_max[i] = raw[i]
+            time.sleep(0.05)
+
+        # The Midpoint Formula: (Max + Min) / 2
+        self.mag_bias = [(mag_max[i] + mag_min[i]) / 2 for i in range(3)]
+
     def _combine_bytes(self, low, high):
         val = (high << 8) | low
         return val - 65536 if val > 32767 else val
       
 if __name__ == "__main__":
     imu = LSM9DS1()
-    imu.calibrate_accel()
+    imu.calibrate()
+    # imu.calibrate_mag()
     
     
     while True:
-        accel = imu.read_accel()
-        gyro = imu.read_gyro()
-        
-        # Formatted output to avoid terminal ghosting
-        output = (f"Accel(g) X:{accel[0]:>7.3f} Y:{accel[1]:>7.3f} Z:{accel[2]:>7.3f} | "
-                  f"Gyro(rad/s) X:{gyro[0]:>7.3f} Y:{gyro[1]:>7.3f} Z:{gyro[2]:>7.3f}")
+        a, g, m = imu.read_accel(), imu.read_gyro(), imu.read_mag()
+        output = (f"A:({a[0]:>6.2f},{a[1]:>6.2f},{a[2]:>6.2f}) | "
+                  f"G:({g[0]:>6.2f},{g[1]:>6.2f},{g[2]:>6.2f}) | "
+                  f"M:({m[0]:>6.2f},{m[1]:>6.2f},{m[2]:>6.2f})")
         print(output, end="\r", flush=True)
         time.sleep(0.1)

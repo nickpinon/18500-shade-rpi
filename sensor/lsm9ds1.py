@@ -53,5 +53,8 @@ class LSM9DS1:
 if __name__ == "__main__":
     imu = LSM9DS1()
     while True:
-        print(f"Accel: {imu.read_accel()}", end="\r")
+        accel = imu.read_accel()
+        # Use :>8.4f to right-align, 8 characters wide, 4 decimal places
+        output = f"Accel X: {accel[0]:>8.4f} | Y: {accel[1]:>8.4f} | Z: {accel[2]:>8.4f}"
+        print(output, end="\r", flush=True)
         time.sleep(0.1)

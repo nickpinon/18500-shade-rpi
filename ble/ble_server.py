@@ -197,7 +197,7 @@ class GattService(dbus.service.Object):
     def get_properties(self) -> dict:
         return {
             GATT_SVC_IFACE: {
-                "UUID": self.uuid,
+                "UUID": dbus.String(self.uuid),
                 "Primary": dbus.Boolean(True),
                 "Characteristics": dbus.Array(
                     [c.get_path() for c in self.characteristics], signature="o"
@@ -207,6 +207,12 @@ class GattService(dbus.service.Object):
 
     def add_characteristic(self, chrc: "GattCharacteristic") -> None:
         self.characteristics.append(chrc)
+
+    @dbus.service.method(DBUS_PROP_IFACE, in_signature="ss", out_signature="v")
+    def Get(self, interface: str, prop: str):
+        if interface != GATT_SVC_IFACE:
+            raise InvalidArgsException()
+        return self.get_properties()[GATT_SVC_IFACE][prop]
 
     @dbus.service.method(DBUS_PROP_IFACE, in_signature="s", out_signature="a{sv}")
     def GetAll(self, interface: str) -> dict:
@@ -229,6 +235,7 @@ class GattCharacteristic(dbus.service.Object):
         self.flags = flags
         self.service = service
         self.notifying = False
+        self.value: list[int] = []
         dbus.service.Object.__init__(self, bus, self.path)
 
     def get_path(self) -> dbus.ObjectPath:
@@ -238,10 +245,18 @@ class GattCharacteristic(dbus.service.Object):
         return {
             GATT_CHR_IFACE: {
                 "Service": self.service.get_path(),
-                "UUID": self.uuid,
+                "UUID": dbus.String(self.uuid),
                 "Flags": dbus.Array(self.flags, signature="s"),
+                "Value": dbus.Array(self.value, signature="y"),
+                "Notifying": dbus.Boolean(self.notifying),
             }
         }
+
+    @dbus.service.method(DBUS_PROP_IFACE, in_signature="ss", out_signature="v")
+    def Get(self, interface: str, prop: str):
+        if interface != GATT_CHR_IFACE:
+            raise InvalidArgsException()
+        return self.get_properties()[GATT_CHR_IFACE][prop]
 
     @dbus.service.method(DBUS_PROP_IFACE, in_signature="s", out_signature="a{sv}")
     def GetAll(self, interface: str) -> dict:
@@ -409,10 +424,15 @@ class UmbrellaBLEPeripheral:
 
     def _on_app_registered(self) -> None:
         print("GATT application registered ✓", flush=True)
+        # Delay the diagnostic check so BlueZ has time to finish processing
+        GLib.timeout_add(3000, self._check_gatt_table)
+
+    def _check_gatt_table(self) -> bool:
+        """Query BlueZ 3 seconds after registration to verify our service is visible."""
         try:
             om = dbus.Interface(self.bus.get_object(BLUEZ_SVC, "/"), DBUS_OM_IFACE)
             objects = om.GetManagedObjects()
-            print("--- BlueZ GATT table after registration ---", flush=True)
+            print("--- BlueZ GATT table (3 s after registration) ---", flush=True)
             found = False
             for path, ifaces in objects.items():
                 if GATT_SVC_IFACE in ifaces:
@@ -421,14 +441,14 @@ class UmbrellaBLEPeripheral:
                     found = True
                 if GATT_CHR_IFACE in ifaces:
                     uuid = ifaces[GATT_CHR_IFACE].get("UUID", "?")
-                    flags = list(ifaces[GATT_CHR_IFACE].get("Flags", []))
-                    print(f"    Char:  {uuid}  flags={flags}", flush=True)
+                    print(f"    Char:  {uuid}", flush=True)
                     found = True
             if not found:
-                print("  (no GATT services found — registration may have silently failed)", flush=True)
+                print("  (still empty — BlueZ rejected our service internally)", flush=True)
             print("---", flush=True)
         except Exception as exc:
             print(f"  Diagnostic error: {exc}", flush=True)
+        return False  # don't repeat
 
     def _on_error(self, error) -> None:
         print(f"BLE registration failed: {error}", flush=True)

@@ -1,48 +1,52 @@
 #!/usr/bin/env python3
 """
-Umbrella BLE peripheral — direct BlueZ D-Bus GATT implementation.
+Umbrella BLE peripheral — bless GATT server.
 
-Replaces bluezero with direct D-Bus calls so the custom GATT service is
-reliably registered with the correct UUIDs on modern BlueZ / Raspberry Pi OS.
+Uses the 'bless' library which correctly handles GATT registration on modern
+BlueZ / Raspberry Pi OS without the silent rejection issues of raw D-Bus.
 
-Run with:  sudo python3 ble_server.py
+Setup (one time):
+    pip install bless
+
+Run with:
+    sudo python3 ble_server.py
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import signal
+import sys
 import threading
 import time
 from dataclasses import asdict, dataclass
 
-import dbus
-import dbus.exceptions
-import dbus.mainloop.glib
-import dbus.service
-from gi.repository import GLib
+try:
+    from bless import (
+        BlessServer,
+        BlessGATTCharacteristic,
+        GATTCharacteristicProperties,
+        GATTAttributePermissions,
+    )
+except ImportError:
+    print("ERROR: 'bless' not installed.", file=sys.stderr)
+    print("Run:  pip install bless", file=sys.stderr)
+    sys.exit(1)
 
 try:
     import RPi.GPIO as GPIO
 except ModuleNotFoundError:
-    GPIO = None  # runs fine without hardware
+    GPIO = None
+
+logging.basicConfig(level=logging.WARNING)
 
 # ── BLE identity ──────────────────────────────────────────────────────────────
 DEVICE_NAME       = "UmbrellaPi"
-# BlueZ requires lowercase UUIDs
 SERVICE_UUID      = "a4f1c6a0-7d5f-4e3d-8a91-102e88d13001"
 COMMAND_CHAR_UUID = "a4f1c6a0-7d5f-4e3d-8a91-102e88d13002"
 STATUS_CHAR_UUID  = "a4f1c6a0-7d5f-4e3d-8a91-102e88d13003"
-
-# ── D-Bus / BlueZ interface names ─────────────────────────────────────────────
-BLUEZ_SVC        = "org.bluez"
-GATT_MGR_IFACE   = "org.bluez.GattManager1"
-LE_ADV_MGR_IFACE = "org.bluez.LEAdvertisingManager1"
-LE_ADV_IFACE     = "org.bluez.LEAdvertisement1"
-GATT_SVC_IFACE   = "org.bluez.GattService1"
-GATT_CHR_IFACE   = "org.bluez.GattCharacteristic1"
-DBUS_PROP_IFACE  = "org.freedesktop.DBus.Properties"
-DBUS_OM_IFACE    = "org.freedesktop.DBus.ObjectManager"
 
 # ── GPIO / stepper constants (BCM numbering) ──────────────────────────────────
 VERTICAL_STEP_PIN     = 17
@@ -71,7 +75,7 @@ class UmbrellaStepperController:
     def __init__(self) -> None:
         self.available = GPIO is not None
         if not self.available:
-            print("GPIO not available — motor commands will only log.")
+            print("GPIO not available — motor commands will only log.", flush=True)
             return
         GPIO.setwarnings(False)
         GPIO.setmode(GPIO.BCM)
@@ -131,414 +135,183 @@ class UmbrellaState:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# D-Bus helpers
+# Globals (shared between async loop and callbacks)
 # ─────────────────────────────────────────────────────────────────────────────
 
-class InvalidArgsException(dbus.exceptions.DBusException):
-    _dbus_error_name = "org.freedesktop.DBus.Error.InvalidArgs"
-
-
-class NotSupportedException(dbus.exceptions.DBusException):
-    _dbus_error_name = "org.bluez.Error.NotSupported"
-
-
-def find_adapter(bus: dbus.SystemBus) -> str:
-    """Return the D-Bus path of the first BlueZ adapter that supports GATT."""
-    om = dbus.Interface(bus.get_object(BLUEZ_SVC, "/"), DBUS_OM_IFACE)
-    for path, ifaces in om.GetManagedObjects().items():
-        if GATT_MGR_IFACE in ifaces:
-            return path
-    raise RuntimeError("No Bluetooth adapter with GattManager found.")
+state = UmbrellaState()
+state_lock = threading.Lock()
+gpio = UmbrellaStepperController()
+server: BlessServer | None = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# GATT object tree
+# GATT callbacks
 # ─────────────────────────────────────────────────────────────────────────────
 
-class GattApplication(dbus.service.Object):
-    def __init__(self, bus: dbus.SystemBus) -> None:
-        self.path = "/"
-        self.services: list[GattService] = []
-        dbus.service.Object.__init__(self, bus, self.path)
-
-    def get_path(self) -> dbus.ObjectPath:
-        return dbus.ObjectPath(self.path)
-
-    def add_service(self, service: "GattService") -> None:
-        self.services.append(service)
-
-    @dbus.service.method(DBUS_OM_IFACE, out_signature="a{oa{sa{sv}}}")
-    def GetManagedObjects(self) -> dict:
-        result: dict = {}
-        for svc in self.services:
-            result[svc.get_path()] = svc.get_properties()
-            for chrc in svc.characteristics:
-                result[chrc.get_path()] = chrc.get_properties()
-        print(f"[D-Bus] GetManagedObjects called — returning {len(result)} objects", flush=True)
-        for path, props in result.items():
-            for iface, attrs in props.items():
-                uuid = attrs.get("UUID", "?")
-                print(f"  {path}  iface={iface.split('.')[-1]}  UUID={uuid}", flush=True)
-        return result
+def read_request(characteristic: BlessGATTCharacteristic, **kwargs) -> bytearray:
+    if characteristic.uuid.lower() == STATUS_CHAR_UUID:
+        with state_lock:
+            return bytearray(state.to_bytes())
+    return bytearray()
 
 
-class GattService(dbus.service.Object):
-    BASE = "/org/bluez/umbrella/service"
+def write_request(characteristic: BlessGATTCharacteristic, value: Any, **kwargs) -> None:
+    if characteristic.uuid.lower() != COMMAND_CHAR_UUID:
+        return
+    try:
+        payload = bytes(value).decode("utf-8")
+        command = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        print(f"Invalid BLE command payload: {exc}", flush=True)
+        return
 
-    def __init__(self, bus: dbus.SystemBus, index: int, uuid: str) -> None:
-        self.path = f"{self.BASE}{index}"
-        self.uuid = uuid
-        self.characteristics: list[GattCharacteristic] = []
-        dbus.service.Object.__init__(self, bus, self.path)
-
-    def get_path(self) -> dbus.ObjectPath:
-        return dbus.ObjectPath(self.path)
-
-    def get_properties(self) -> dict:
-        return {
-            GATT_SVC_IFACE: {
-                "UUID": dbus.String(self.uuid),
-                "Primary": dbus.Boolean(True),
-                "Characteristics": dbus.Array(
-                    [c.get_path() for c in self.characteristics], signature="o"
-                ),
-            }
-        }
-
-    def add_characteristic(self, chrc: "GattCharacteristic") -> None:
-        self.characteristics.append(chrc)
-
-    @dbus.service.method(DBUS_PROP_IFACE, in_signature="ss", out_signature="v")
-    def Get(self, interface: str, prop: str):
-        if interface != GATT_SVC_IFACE:
-            raise InvalidArgsException()
-        return self.get_properties()[GATT_SVC_IFACE][prop]
-
-    @dbus.service.method(DBUS_PROP_IFACE, in_signature="s", out_signature="a{sv}")
-    def GetAll(self, interface: str) -> dict:
-        if interface != GATT_SVC_IFACE:
-            raise InvalidArgsException()
-        return self.get_properties()[GATT_SVC_IFACE]
+    handle_command(command)
 
 
-class GattCharacteristic(dbus.service.Object):
-    def __init__(
-        self,
-        bus: dbus.SystemBus,
-        index: int,
-        uuid: str,
-        flags: list[str],
-        service: GattService,
-    ) -> None:
-        self.path = f"{service.path}/char{index}"
-        self.uuid = uuid
-        self.flags = flags
-        self.service = service
-        self.notifying = False
-        self.value: list[int] = []
-        dbus.service.Object.__init__(self, bus, self.path)
+def handle_command(command: dict) -> None:
+    global state
+    cmd_type = command.get("type")
+    motion: tuple[str, bool] | None = None
 
-    def get_path(self) -> dbus.ObjectPath:
-        return dbus.ObjectPath(self.path)
+    with state_lock:
+        if cmd_type == "move":
+            direction = (command.get("direction") or "").lower()
+            delta = 5 if direction in {"up", "right"} else (-5 if direction in {"down", "left"} else 0)
+            state.position = max(0, min(100, state.position + delta))
+            state.moving = True
+            motion = {
+                "up":    ("vertical",   True),
+                "down":  ("vertical",   False),
+                "left":  ("horizontal", False),
+                "right": ("horizontal", True),
+            }.get(direction)
+            print(f"Move command received: {direction}", flush=True)
 
-    def get_properties(self) -> dict:
-        return {
-            GATT_CHR_IFACE: {
-                "Service": self.service.get_path(),
-                "UUID": dbus.String(self.uuid),
-                "Flags": dbus.Array(self.flags, signature="s"),
-                "Value": dbus.Array(self.value, signature="y"),
-                "Notifying": dbus.Boolean(self.notifying),
-            }
-        }
+        elif cmd_type == "stop":
+            state.moving = False
+            print("Stop command received", flush=True)
 
-    @dbus.service.method(DBUS_PROP_IFACE, in_signature="ss", out_signature="v")
-    def Get(self, interface: str, prop: str):
-        if interface != GATT_CHR_IFACE:
-            raise InvalidArgsException()
-        return self.get_properties()[GATT_CHR_IFACE][prop]
+        elif cmd_type == "mode":
+            value = command.get("value")
+            if isinstance(value, str) and value:
+                state.mode = value
+            print(f"Mode command received: {state.mode}", flush=True)
 
-    @dbus.service.method(DBUS_PROP_IFACE, in_signature="s", out_signature="a{sv}")
-    def GetAll(self, interface: str) -> dict:
-        if interface != GATT_CHR_IFACE:
-            raise InvalidArgsException()
-        return self.get_properties()[GATT_CHR_IFACE]
-
-    @dbus.service.signal(DBUS_PROP_IFACE, signature="sa{sv}as")
-    def PropertiesChanged(self, interface: str, changed: dict, invalidated: list) -> None:
-        pass
-
-    @dbus.service.method(GATT_CHR_IFACE, in_signature="a{sv}", out_signature="ay")
-    def ReadValue(self, options: dict) -> list:
-        raise NotSupportedException()
-
-    @dbus.service.method(GATT_CHR_IFACE, in_signature="aya{sv}")
-    def WriteValue(self, value: list, options: dict) -> None:
-        raise NotSupportedException()
-
-    @dbus.service.method(GATT_CHR_IFACE)
-    def StartNotify(self) -> None:
-        raise NotSupportedException()
-
-    @dbus.service.method(GATT_CHR_IFACE)
-    def StopNotify(self) -> None:
-        raise NotSupportedException()
-
-
-class CommandCharacteristic(GattCharacteristic):
-    def __init__(self, bus, index, service, on_command) -> None:
-        super().__init__(bus, index, COMMAND_CHAR_UUID, ["write", "write-without-response"], service)
-        self._on_command = on_command
-
-    @dbus.service.method(GATT_CHR_IFACE, in_signature="aya{sv}")
-    def WriteValue(self, value: list, options: dict) -> None:
-        try:
-            payload = bytes(value).decode("utf-8")
-            command = json.loads(payload)
-            self._on_command(command)
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            print(f"Invalid BLE command payload: {exc}")
-
-
-class StatusCharacteristic(GattCharacteristic):
-    def __init__(self, bus, index, service, read_status) -> None:
-        super().__init__(bus, index, STATUS_CHAR_UUID, ["read", "notify"], service)
-        self._read_status = read_status
-
-    @dbus.service.method(GATT_CHR_IFACE, in_signature="a{sv}", out_signature="ay")
-    def ReadValue(self, options: dict) -> list:
-        return dbus.Array(self._read_status(), signature="y")
-
-    @dbus.service.method(GATT_CHR_IFACE)
-    def StartNotify(self) -> None:
-        self.notifying = True
-
-    @dbus.service.method(GATT_CHR_IFACE)
-    def StopNotify(self) -> None:
-        self.notifying = False
-
-    def push(self, data: bytes) -> None:
-        if self.notifying:
-            self.PropertiesChanged(
-                GATT_CHR_IFACE,
-                {"Value": dbus.Array(list(data), signature="y")},
-                [],
+        elif cmd_type == "location":
+            state.target_latitude  = command.get("latitude")
+            state.target_longitude = command.get("longitude")
+            state.target_accuracy  = command.get("accuracy")
+            state.target_timestamp = command.get("timestamp")
+            print(
+                f"Location received: {state.target_latitude}, "
+                f"{state.target_longitude} (±{state.target_accuracy}m)",
+                flush=True,
             )
 
+        else:
+            print(f"Unknown command: {command}", flush=True)
+            return
 
-# ─────────────────────────────────────────────────────────────────────────────
-# BLE advertisement
-# ─────────────────────────────────────────────────────────────────────────────
+    if motion:
+        axis, forward = motion
+        threading.Thread(target=gpio.step_axis, args=(axis, forward), daemon=True).start()
+    elif cmd_type == "stop":
+        gpio.stop_all()
 
-class UmbrellaAdvertisement(dbus.service.Object):
-    PATH = "/org/bluez/umbrella/advertisement0"
+    with state_lock:
+        if cmd_type == "move":
+            state.moving = False
 
-    def __init__(self, bus: dbus.SystemBus) -> None:
-        dbus.service.Object.__init__(self, bus, self.PATH)
+    _push_status()
 
-    def get_path(self) -> dbus.ObjectPath:
-        return dbus.ObjectPath(self.PATH)
 
-    @dbus.service.method(DBUS_PROP_IFACE, in_signature="s", out_signature="a{sv}")
-    def GetAll(self, interface: str) -> dict:
-        if interface != LE_ADV_IFACE:
-            raise InvalidArgsException()
-        return {
-            "Type": dbus.String("peripheral"),
-            "ServiceUUIDs": dbus.Array([SERVICE_UUID], signature="s"),
-            "LocalName": dbus.String(DEVICE_NAME),
-            "Includes": dbus.Array(["tx-power"], signature="s"),
-        }
-
-    @dbus.service.method(LE_ADV_IFACE)
-    def Release(self) -> None:
+def _push_status() -> None:
+    global server
+    if server is None:
+        return
+    with state_lock:
+        data = bytearray(state.to_bytes())
+    try:
+        char = server.get_characteristic(STATUS_CHAR_UUID)
+        if char is not None:
+            server.update_value(SERVICE_UUID, STATUS_CHAR_UUID)
+    except Exception:
         pass
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Orchestrator
+# Async server
 # ─────────────────────────────────────────────────────────────────────────────
 
-class UmbrellaBLEPeripheral:
-    def __init__(self) -> None:
-        dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
-        self.bus = dbus.SystemBus()
-        self.mainloop = GLib.MainLoop()
-        self.state = UmbrellaState()
-        self.lock = threading.Lock()
-        self.gpio = UmbrellaStepperController()
+# Allow type annotation without importing at top level
+from typing import Any  # noqa: E402
 
-        adapter_path = find_adapter(self.bus)
-        adapter_obj  = self.bus.get_object(BLUEZ_SVC, adapter_path)
-        self.gatt_mgr = dbus.Interface(adapter_obj, GATT_MGR_IFACE)
-        self.ad_mgr   = dbus.Interface(adapter_obj, LE_ADV_MGR_IFACE)
 
-        # Build GATT tree
-        self.app  = GattApplication(self.bus)
-        self.svc  = GattService(self.bus, 0, SERVICE_UUID)
-        self.cmd  = CommandCharacteristic(self.bus, 0, self.svc, self._handle_command)
-        self.sta  = StatusCharacteristic(self.bus, 1, self.svc, self._read_status)
-        self.svc.add_characteristic(self.cmd)
-        self.svc.add_characteristic(self.sta)
-        self.app.add_service(self.svc)
+async def run() -> None:
+    global server
 
-        self.adv = UmbrellaAdvertisement(self.bus)
+    loop = asyncio.get_event_loop()
+    server = BlessServer(name=DEVICE_NAME, loop=loop)
+    server.read_request_func = read_request
+    server.write_request_func = write_request
 
-    # ── lifecycle ─────────────────────────────────────────────────────────────
+    await server.add_new_service(SERVICE_UUID)
 
-    def start(self) -> None:
-        self.gatt_mgr.RegisterApplication(
-            self.app.get_path(), {},
-            reply_handler=self._on_app_registered,
-            error_handler=self._on_error,
-        )
-        self.ad_mgr.RegisterAdvertisement(
-            self.adv.get_path(), {},
-            reply_handler=lambda: print("Advertisement registered ✓", flush=True),
-            error_handler=self._on_error,
-        )
-        print(f"\nAdvertising as '{DEVICE_NAME}'")
-        print(f"Service UUID:  {SERVICE_UUID}")
-        print(f"Command char:  {COMMAND_CHAR_UUID}")
-        print(f"Status char:   {STATUS_CHAR_UUID}")
-        print(
-            f"GPIO (BCM): vertical(step={VERTICAL_STEP_PIN}, dir={VERTICAL_DIR_PIN}, "
-            f"enable={VERTICAL_ENABLE_PIN}), "
-            f"horizontal(step={HORIZONTAL_STEP_PIN}, dir={HORIZONTAL_DIR_PIN}, "
-            f"enable={HORIZONTAL_ENABLE_PIN})\n"
-        )
-        self.mainloop.run()
+    cmd_props = (
+        GATTCharacteristicProperties.write
+        | GATTCharacteristicProperties.write_without_response
+    )
+    await server.add_new_characteristic(
+        SERVICE_UUID,
+        COMMAND_CHAR_UUID,
+        cmd_props,
+        None,
+        GATTAttributePermissions.writeable,
+    )
 
-    def stop(self) -> None:
-        print("\nStopping BLE peripheral")
-        self.gpio.cleanup()
-        for fn in (
-            lambda: self.ad_mgr.UnregisterAdvertisement(self.adv.get_path()),
-            lambda: self.gatt_mgr.UnregisterApplication(self.app.get_path()),
-        ):
-            try:
-                fn()
-            except Exception:
-                pass
-        self.mainloop.quit()
+    sta_props = GATTCharacteristicProperties.read | GATTCharacteristicProperties.notify
+    with state_lock:
+        initial_value = bytearray(state.to_bytes())
+    await server.add_new_characteristic(
+        SERVICE_UUID,
+        STATUS_CHAR_UUID,
+        sta_props,
+        initial_value,
+        GATTAttributePermissions.readable,
+    )
 
-    def _on_app_registered(self) -> None:
-        print("GATT application registered ✓", flush=True)
-        # Delay the diagnostic check so BlueZ has time to finish processing
-        GLib.timeout_add(3000, self._check_gatt_table)
+    await server.start()
 
-    def _check_gatt_table(self) -> bool:
-        """Query BlueZ 3 seconds after registration to verify our service is visible."""
-        try:
-            om = dbus.Interface(self.bus.get_object(BLUEZ_SVC, "/"), DBUS_OM_IFACE)
-            objects = om.GetManagedObjects()
-            print("--- BlueZ GATT table (3 s after registration) ---", flush=True)
-            found = False
-            for path, ifaces in objects.items():
-                if GATT_SVC_IFACE in ifaces:
-                    uuid = ifaces[GATT_SVC_IFACE].get("UUID", "?")
-                    print(f"  Service: {uuid}  ({path})", flush=True)
-                    found = True
-                if GATT_CHR_IFACE in ifaces:
-                    uuid = ifaces[GATT_CHR_IFACE].get("UUID", "?")
-                    print(f"    Char:  {uuid}", flush=True)
-                    found = True
-            if not found:
-                print("  (still empty — BlueZ rejected our service internally)", flush=True)
-            print("---", flush=True)
-        except Exception as exc:
-            print(f"  Diagnostic error: {exc}", flush=True)
-        return False  # don't repeat
+    print(f"\nAdvertising as '{DEVICE_NAME}'", flush=True)
+    print(f"Service UUID:  {SERVICE_UUID}", flush=True)
+    print(f"Command char:  {COMMAND_CHAR_UUID}", flush=True)
+    print(f"Status char:   {STATUS_CHAR_UUID}", flush=True)
+    print(
+        f"GPIO (BCM): vertical(step={VERTICAL_STEP_PIN}, dir={VERTICAL_DIR_PIN}, "
+        f"enable={VERTICAL_ENABLE_PIN}), "
+        f"horizontal(step={HORIZONTAL_STEP_PIN}, dir={HORIZONTAL_DIR_PIN}, "
+        f"enable={HORIZONTAL_ENABLE_PIN})\n",
+        flush=True,
+    )
+    print("Server running — waiting for connections...", flush=True)
 
-    def _on_error(self, error) -> None:
-        print(f"BLE registration failed: {error}", flush=True)
-        self.mainloop.quit()
+    stop_event = asyncio.Event()
 
-    # ── status ────────────────────────────────────────────────────────────────
+    def _shutdown(signum, frame):
+        print("\nShutting down...", flush=True)
+        gpio.cleanup()
+        loop.call_soon_threadsafe(stop_event.set)
 
-    def _read_status(self) -> list[int]:
-        with self.lock:
-            return list(self.state.to_bytes())
+    signal.signal(signal.SIGINT,  _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
 
-    def _push_status(self) -> None:
-        with self.lock:
-            data = self.state.to_bytes()
-        self.sta.push(data)
-
-    # ── command handler ───────────────────────────────────────────────────────
-
-    def _handle_command(self, command: dict) -> None:
-        cmd_type = command.get("type")
-        motion: tuple[str, bool] | None = None
-
-        with self.lock:
-            if cmd_type == "move":
-                direction = (command.get("direction") or "").lower()
-                delta = 5 if direction in {"up", "right"} else (-5 if direction in {"down", "left"} else 0)
-                self.state.position = max(0, min(100, self.state.position + delta))
-                self.state.moving = True
-                motion = {
-                    "up":    ("vertical",   True),
-                    "down":  ("vertical",   False),
-                    "left":  ("horizontal", False),
-                    "right": ("horizontal", True),
-                }.get(direction)
-                print(f"Move command received: {direction}", flush=True)
-
-            elif cmd_type == "stop":
-                self.state.moving = False
-                print("Stop command received", flush=True)
-
-            elif cmd_type == "mode":
-                value = command.get("value")
-                if isinstance(value, str) and value:
-                    self.state.mode = value
-                print(f"Mode command received: {self.state.mode}", flush=True)
-
-            elif cmd_type == "location":
-                self.state.target_latitude  = command.get("latitude")
-                self.state.target_longitude = command.get("longitude")
-                self.state.target_accuracy  = command.get("accuracy")
-                self.state.target_timestamp = command.get("timestamp")
-                print(
-                    f"Location received: {self.state.target_latitude}, "
-                    f"{self.state.target_longitude} "
-                    f"(±{self.state.target_accuracy}m)"
-                )
-
-            else:
-                print(f"Unknown command: {command}")
-                return
-
-        # Run motor steps in background thread so BLE callbacks stay responsive
-        if motion:
-            axis, forward = motion
-            threading.Thread(target=self.gpio.step_axis, args=(axis, forward), daemon=True).start()
-        elif cmd_type == "stop":
-            self.gpio.stop_all()
-
-        with self.lock:
-            if cmd_type == "move":
-                self.state.moving = False
-
-        GLib.idle_add(self._push_status)
+    await stop_event.wait()
+    await server.stop()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
-def main() -> None:
-    peripheral = UmbrellaBLEPeripheral()
-
-    def shutdown(signum, frame):
-        peripheral.stop()
-
-    signal.signal(signal.SIGINT,  shutdown)
-    signal.signal(signal.SIGTERM, shutdown)
-
-    peripheral.start()
-
-
 if __name__ == "__main__":
-    main()
+    asyncio.run(run())

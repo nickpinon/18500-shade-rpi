@@ -17,11 +17,102 @@ from dataclasses import dataclass, asdict
 
 from bluezero import adapter, peripheral
 
+try:
+    import RPi.GPIO as GPIO
+except ModuleNotFoundError:  # pragma: no cover - only available on Raspberry Pi
+    GPIO = None
+
 
 DEVICE_NAME = "UmbrellaPi"
 SERVICE_UUID = "A4F1C6A0-7D5F-4E3D-8A91-102E88D13001"
 COMMAND_CHARACTERISTIC_UUID = "A4F1C6A0-7D5F-4E3D-8A91-102E88D13002"
 STATUS_CHARACTERISTIC_UUID = "A4F1C6A0-7D5F-4E3D-8A91-102E88D13003"
+
+# BCM GPIO numbering
+VERTICAL_STEP_PIN = 17
+VERTICAL_DIR_PIN = 27
+VERTICAL_ENABLE_PIN = 22
+HORIZONTAL_STEP_PIN = 23
+HORIZONTAL_DIR_PIN = 24
+HORIZONTAL_ENABLE_PIN = 25
+
+STEPPER_ENABLE_ACTIVE = 0
+STEPPER_ENABLE_INACTIVE = 1
+STEP_PULSE_SECONDS = 0.001
+MOVE_STEP_COUNT = 80
+
+
+class UmbrellaStepperController:
+    """GPIO bridge for two stepper drivers using STEP/DIR/ENABLE pins."""
+
+    AXES = {
+        "vertical": {
+            "step": VERTICAL_STEP_PIN,
+            "dir": VERTICAL_DIR_PIN,
+            "enable": VERTICAL_ENABLE_PIN,
+        },
+        "horizontal": {
+            "step": HORIZONTAL_STEP_PIN,
+            "dir": HORIZONTAL_DIR_PIN,
+            "enable": HORIZONTAL_ENABLE_PIN,
+        },
+    }
+
+    def __init__(self) -> None:
+        self.available = GPIO is not None
+        if not self.available:
+            print("GPIO library not available; BLE commands will only update state.")
+            return
+
+        GPIO.setwarnings(False)
+        GPIO.setmode(GPIO.BCM)
+        for pins in self.AXES.values():
+            GPIO.setup(pins["step"], GPIO.OUT, initial=GPIO.LOW)
+            GPIO.setup(pins["dir"], GPIO.OUT, initial=GPIO.LOW)
+            GPIO.setup(pins["enable"], GPIO.OUT, initial=STEPPER_ENABLE_INACTIVE)
+
+    def enable_axis(self, axis: str, enabled: bool) -> None:
+        if not self.available:
+            return
+
+        pins = self.AXES[axis]
+        GPIO.output(
+            pins["enable"],
+            STEPPER_ENABLE_ACTIVE if enabled else STEPPER_ENABLE_INACTIVE,
+        )
+
+    def step_axis(self, axis: str, forward: bool, steps: int = MOVE_STEP_COUNT) -> bool:
+        pins = self.AXES.get(axis)
+        if pins is None:
+            return False
+        if not self.available:
+            return True
+
+        self.enable_axis(axis, True)
+        GPIO.output(pins["dir"], GPIO.HIGH if forward else GPIO.LOW)
+
+        for _ in range(steps):
+            GPIO.output(pins["step"], GPIO.HIGH)
+            time.sleep(STEP_PULSE_SECONDS)
+            GPIO.output(pins["step"], GPIO.LOW)
+            time.sleep(STEP_PULSE_SECONDS)
+
+        self.enable_axis(axis, False)
+        return True
+
+    def stop_all(self) -> None:
+        if not self.available:
+            return
+
+        for axis in self.AXES:
+            self.enable_axis(axis, False)
+
+    def cleanup(self) -> None:
+        if not self.available:
+            return
+
+        self.stop_all()
+        GPIO.cleanup()
 
 
 @dataclass
@@ -30,6 +121,10 @@ class UmbrellaState:
     mode: str = "Manual"
     moving: bool = False
     connected: bool = True
+    target_latitude: float | None = None
+    target_longitude: float | None = None
+    target_accuracy: float | None = None
+    target_timestamp: str | None = None
 
     def to_bytes(self) -> bytes:
         return json.dumps(asdict(self)).encode("utf-8")
@@ -44,8 +139,9 @@ class UmbrellaBLEPeripheral:
         self.state = UmbrellaState()
         self.lock = threading.Lock()
         self.status_subscribed = False
+        self.gpio = UmbrellaStepperController()
         self.ble = peripheral.Peripheral(
-            adapter_addr=adapters[0].address,
+            adapter_address=adapters[0].address,
             local_name=DEVICE_NAME,
             appearance=0,
         )
@@ -74,11 +170,18 @@ class UmbrellaBLEPeripheral:
     def start(self) -> None:
         print(f"Advertising BLE umbrella service as {DEVICE_NAME}")
         print(f"Service UUID: {SERVICE_UUID}")
+        print(
+            "Stepper GPIO map (BCM): "
+            f"vertical(step={VERTICAL_STEP_PIN}, dir={VERTICAL_DIR_PIN}, enable={VERTICAL_ENABLE_PIN}), "
+            f"horizontal(step={HORIZONTAL_STEP_PIN}, dir={HORIZONTAL_DIR_PIN}, enable={HORIZONTAL_ENABLE_PIN})"
+        )
         self.ble.publish()
 
     def stop(self) -> None:
         print("Stopping BLE peripheral")
-        self.ble.unpublish()
+        self.gpio.cleanup()
+        if hasattr(self.ble, "unpublish"):
+            self.ble.unpublish()
 
     def read_status(self) -> list[int]:
         with self.lock:
@@ -102,6 +205,7 @@ class UmbrellaBLEPeripheral:
 
     def handle_command(self, command: dict) -> None:
         command_type = command.get("type")
+        motion: tuple[str, bool] | None = None
 
         with self.lock:
             if command_type == "move":
@@ -115,6 +219,14 @@ class UmbrellaBLEPeripheral:
 
                 self.state.position = max(0, min(100, self.state.position + delta))
                 self.state.moving = True
+                if direction == "up":
+                    motion = ("vertical", True)
+                elif direction == "down":
+                    motion = ("vertical", False)
+                elif direction == "left":
+                    motion = ("horizontal", False)
+                elif direction == "right":
+                    motion = ("horizontal", True)
                 print(f"Move command received: {direction}")
 
             elif command_type == "stop":
@@ -127,12 +239,28 @@ class UmbrellaBLEPeripheral:
                     self.state.mode = value
                 print(f"Mode command received: {self.state.mode}")
 
+            elif command_type == "location":
+                self.state.target_latitude = command.get("latitude")
+                self.state.target_longitude = command.get("longitude")
+                self.state.target_accuracy = command.get("accuracy")
+                self.state.target_timestamp = command.get("timestamp")
+                print(
+                    "Location received: "
+                    f"{self.state.target_latitude}, {self.state.target_longitude} "
+                    f"(accuracy {self.state.target_accuracy}m at {self.state.target_timestamp})"
+                )
+
             else:
                 print(f"Unknown command: {command}")
                 return
 
-        # Placeholder for real motor logic.
-        time.sleep(0.1)
+        if motion:
+            axis, forward = motion
+            self.gpio.step_axis(axis, forward)
+        elif command_type == "stop":
+            self.gpio.stop_all()
+        else:
+            time.sleep(0.1)
 
         with self.lock:
             if command_type == "move":

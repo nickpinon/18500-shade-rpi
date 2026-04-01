@@ -29,9 +29,10 @@ except ModuleNotFoundError:
 
 # ── BLE identity ──────────────────────────────────────────────────────────────
 DEVICE_NAME       = "UmbrellaPi"
-SERVICE_UUID      = "A4F1C6A0-7D5F-4E3D-8A91-102E88D13001"
-COMMAND_CHAR_UUID = "A4F1C6A0-7D5F-4E3D-8A91-102E88D13002"
-STATUS_CHAR_UUID  = "A4F1C6A0-7D5F-4E3D-8A91-102E88D13003"
+# BlueZ requires lowercase UUIDs
+SERVICE_UUID      = "a4f1c6a0-7d5f-4e3d-8a91-102e88d13001"
+COMMAND_CHAR_UUID = "a4f1c6a0-7d5f-4e3d-8a91-102e88d13002"
+STATUS_CHAR_UUID  = "a4f1c6a0-7d5f-4e3d-8a91-102e88d13003"
 
 # ── D-Bus / BlueZ interface names ─────────────────────────────────────────────
 BLUEZ_SVC        = "org.bluez"
@@ -173,6 +174,11 @@ class GattApplication(dbus.service.Object):
             result[svc.get_path()] = svc.get_properties()
             for chrc in svc.characteristics:
                 result[chrc.get_path()] = chrc.get_properties()
+        print(f"[D-Bus] GetManagedObjects called — returning {len(result)} objects", flush=True)
+        for path, props in result.items():
+            for iface, attrs in props.items():
+                uuid = attrs.get("UUID", "?")
+                print(f"  {path}  iface={iface.split('.')[-1]}  UUID={uuid}", flush=True)
         return result
 
 
@@ -368,12 +374,12 @@ class UmbrellaBLEPeripheral:
     def start(self) -> None:
         self.gatt_mgr.RegisterApplication(
             self.app.get_path(), {},
-            reply_handler=lambda: print("GATT application registered ✓"),
+            reply_handler=self._on_app_registered,
             error_handler=self._on_error,
         )
         self.ad_mgr.RegisterAdvertisement(
             self.adv.get_path(), {},
-            reply_handler=lambda: print("Advertisement registered ✓"),
+            reply_handler=lambda: print("Advertisement registered ✓", flush=True),
             error_handler=self._on_error,
         )
         print(f"\nAdvertising as '{DEVICE_NAME}'")
@@ -401,8 +407,31 @@ class UmbrellaBLEPeripheral:
                 pass
         self.mainloop.quit()
 
+    def _on_app_registered(self) -> None:
+        print("GATT application registered ✓", flush=True)
+        try:
+            om = dbus.Interface(self.bus.get_object(BLUEZ_SVC, "/"), DBUS_OM_IFACE)
+            objects = om.GetManagedObjects()
+            print("--- BlueZ GATT table after registration ---", flush=True)
+            found = False
+            for path, ifaces in objects.items():
+                if GATT_SVC_IFACE in ifaces:
+                    uuid = ifaces[GATT_SVC_IFACE].get("UUID", "?")
+                    print(f"  Service: {uuid}  ({path})", flush=True)
+                    found = True
+                if GATT_CHR_IFACE in ifaces:
+                    uuid = ifaces[GATT_CHR_IFACE].get("UUID", "?")
+                    flags = list(ifaces[GATT_CHR_IFACE].get("Flags", []))
+                    print(f"    Char:  {uuid}  flags={flags}", flush=True)
+                    found = True
+            if not found:
+                print("  (no GATT services found — registration may have silently failed)", flush=True)
+            print("---", flush=True)
+        except Exception as exc:
+            print(f"  Diagnostic error: {exc}", flush=True)
+
     def _on_error(self, error) -> None:
-        print(f"BLE registration failed: {error}")
+        print(f"BLE registration failed: {error}", flush=True)
         self.mainloop.quit()
 
     # ── status ────────────────────────────────────────────────────────────────
@@ -434,17 +463,17 @@ class UmbrellaBLEPeripheral:
                     "left":  ("horizontal", False),
                     "right": ("horizontal", True),
                 }.get(direction)
-                print(f"Move command received: {direction}")
+                print(f"Move command received: {direction}", flush=True)
 
             elif cmd_type == "stop":
                 self.state.moving = False
-                print("Stop command received")
+                print("Stop command received", flush=True)
 
             elif cmd_type == "mode":
                 value = command.get("value")
                 if isinstance(value, str) and value:
                     self.state.mode = value
-                print(f"Mode command received: {self.state.mode}")
+                print(f"Mode command received: {self.state.mode}", flush=True)
 
             elif cmd_type == "location":
                 self.state.target_latitude  = command.get("latitude")

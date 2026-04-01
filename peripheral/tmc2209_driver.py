@@ -26,13 +26,13 @@ if __name__ == "__main__":
 
         print("Spinning Clockwise...")
         dir_pin.on()
-        spin_motor(steps=800, delay=0.002) # 800 pulses
+        spin_motor(steps=50000, delay=0.002) # 800 pulses
         
         time.sleep(1)
 
         print("Spinning Counter-Clockwise...")
         dir_pin.off()
-        spin_motor(steps=800, delay=0.002)
+        spin_motor(steps=50000, delay=0.002)
 
     except KeyboardInterrupt:
         print("\nTest stopped by user.")

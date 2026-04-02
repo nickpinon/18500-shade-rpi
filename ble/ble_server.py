@@ -156,7 +156,9 @@ def read_request(characteristic: BlessGATTCharacteristic, **kwargs) -> bytearray
 
 
 def write_request(characteristic: BlessGATTCharacteristic, value: Any, **kwargs) -> None:
+    print(f"[WRITE] char={characteristic.uuid}  val={bytes(value).hex()}", flush=True)
     if characteristic.uuid.lower() != COMMAND_CHAR_UUID:
+        print(f"[WRITE] ignoring — expected {COMMAND_CHAR_UUID}", flush=True)
         return
     try:
         payload = bytes(value).decode("utf-8")

@@ -58,8 +58,8 @@ HORIZONTAL_ENABLE_PIN = 25
 
 STEPPER_ENABLE_ACTIVE   = 0
 STEPPER_ENABLE_INACTIVE = 1
-STEP_PULSE_SECONDS      = 0.001
-MOVE_STEP_COUNT         = 80
+STEP_PULSE_SECONDS      = 0.002
+MOVE_STEP_COUNT         = 400
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -79,10 +79,12 @@ class UmbrellaStepperController:
             return
         GPIO.setwarnings(False)
         GPIO.setmode(GPIO.BCM)
-        for pins in self.AXES.values():
+        for axis, pins in self.AXES.items():
             GPIO.setup(pins["step"],   GPIO.OUT, initial=GPIO.LOW)
             GPIO.setup(pins["dir"],    GPIO.OUT, initial=GPIO.LOW)
             GPIO.setup(pins["enable"], GPIO.OUT, initial=STEPPER_ENABLE_INACTIVE)
+            print(f"GPIO setup {axis}: step={pins['step']} dir={pins['dir']} enable={pins['enable']}", flush=True)
+        print(f"GPIO ready. ENABLE_ACTIVE={STEPPER_ENABLE_ACTIVE} (driver enable logic)", flush=True)
 
     def enable_axis(self, axis: str, enabled: bool) -> None:
         if not self.available:
@@ -93,6 +95,8 @@ class UmbrellaStepperController:
         pins = self.AXES.get(axis)
         if not pins or not self.available:
             return
+        print(f"[GPIO] stepping {axis} {'forward' if forward else 'backward'} {steps} steps "
+              f"(step={pins['step']}, dir={pins['dir']}, enable={pins['enable']})", flush=True)
         self.enable_axis(axis, True)
         GPIO.output(pins["dir"], GPIO.HIGH if forward else GPIO.LOW)
         for _ in range(steps):
@@ -101,6 +105,7 @@ class UmbrellaStepperController:
             GPIO.output(pins["step"], GPIO.LOW)
             time.sleep(STEP_PULSE_SECONDS)
         self.enable_axis(axis, False)
+        print(f"[GPIO] done stepping {axis}", flush=True)
 
     def stop_all(self) -> None:
         if not self.available:

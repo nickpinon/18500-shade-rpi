@@ -58,8 +58,8 @@ HORIZONTAL_ENABLE_PIN = 25
 
 STEPPER_ENABLE_ACTIVE   = 0
 STEPPER_ENABLE_INACTIVE = 1
-STEP_PULSE_SECONDS      = 0.0005
-MOVE_STEP_COUNT         = 6400
+STEP_PULSE_SECONDS      = 0.0002
+MOVE_STEP_COUNT         = 12800
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -37,7 +37,16 @@ except ImportError:
 
 try:
     import lgpio
-    _GPIO_CHIP = lgpio.gpiochip_open(0)
+    _GPIO_CHIP = None
+    for _chip_num in [4, 0]:
+        try:
+            _GPIO_CHIP = lgpio.gpiochip_open(_chip_num)
+            print(f"GPIO: opened gpiochip{_chip_num}", flush=True)
+            break
+        except Exception:
+            pass
+    if _GPIO_CHIP is None:
+        raise RuntimeError("No GPIO chip found")
 except Exception:
     lgpio = None
     _GPIO_CHIP = None

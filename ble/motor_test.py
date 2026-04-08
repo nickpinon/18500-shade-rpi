@@ -26,7 +26,17 @@ PULSE_SECONDS = 0.001
 STEPS         = 800
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
-h = lgpio.gpiochip_open(0)
+h = None
+for chip in [4, 0]:
+    try:
+        h = lgpio.gpiochip_open(chip)
+        print(f"Opened gpiochip{chip}")
+        break
+    except Exception as e:
+        print(f"gpiochip{chip} failed: {e}")
+if h is None:
+    print("ERROR: could not open any GPIO chip")
+    sys.exit(1)
 
 for pin in [VERTICAL_STEP, VERTICAL_DIR, HORIZONTAL_STEP, HORIZONTAL_DIR]:
     lgpio.gpio_claim_output(h, pin, 0)

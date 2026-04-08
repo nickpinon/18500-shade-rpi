@@ -36,9 +36,11 @@ except ImportError:
     sys.exit(1)
 
 try:
-    import RPi.GPIO as GPIO
-except ModuleNotFoundError:
-    GPIO = None
+    import lgpio
+    _GPIO_CHIP = lgpio.gpiochip_open(0)
+except Exception:
+    lgpio = None
+    _GPIO_CHIP = None
 
 logging.basicConfig(level=logging.WARNING)
 
@@ -49,12 +51,12 @@ COMMAND_CHAR_UUID = "a4f1c6a0-7d5f-4e3d-8a91-102e88d13002"
 STATUS_CHAR_UUID  = "a4f1c6a0-7d5f-4e3d-8a91-102e88d13003"
 
 # ── GPIO / stepper constants (BCM numbering) ──────────────────────────────────
-VERTICAL_STEP_PIN     = 17
-VERTICAL_DIR_PIN      = 27
-VERTICAL_ENABLE_PIN   = 22
-HORIZONTAL_STEP_PIN   = 23
-HORIZONTAL_DIR_PIN    = 24
-HORIZONTAL_ENABLE_PIN = 25
+VERTICAL_STEP_PIN     = 23
+VERTICAL_DIR_PIN      = 24
+VERTICAL_ENABLE_PIN   = 25
+HORIZONTAL_STEP_PIN   = 17
+HORIZONTAL_DIR_PIN    = 27
+HORIZONTAL_ENABLE_PIN = 22
 
 STEPPER_ENABLE_ACTIVE   = 0
 STEPPER_ENABLE_INACTIVE = 1
@@ -73,23 +75,22 @@ class UmbrellaStepperController:
     }
 
     def __init__(self) -> None:
-        self.available = GPIO is not None
+        self.available = lgpio is not None and _GPIO_CHIP is not None
         if not self.available:
             print("GPIO not available — motor commands will only log.", flush=True)
             return
-        GPIO.setwarnings(False)
-        GPIO.setmode(GPIO.BCM)
         for axis, pins in self.AXES.items():
-            GPIO.setup(pins["step"],   GPIO.OUT, initial=GPIO.LOW)
-            GPIO.setup(pins["dir"],    GPIO.OUT, initial=GPIO.LOW)
-            GPIO.setup(pins["enable"], GPIO.OUT, initial=STEPPER_ENABLE_INACTIVE)
+            lgpio.gpio_claim_output(_GPIO_CHIP, pins["step"],   0)
+            lgpio.gpio_claim_output(_GPIO_CHIP, pins["dir"],    0)
+            lgpio.gpio_claim_output(_GPIO_CHIP, pins["enable"], STEPPER_ENABLE_INACTIVE)
             print(f"GPIO setup {axis}: step={pins['step']} dir={pins['dir']} enable={pins['enable']}", flush=True)
-        print(f"GPIO ready. ENABLE_ACTIVE={STEPPER_ENABLE_ACTIVE} (driver enable logic)", flush=True)
+        print(f"GPIO ready (lgpio). ENABLE_ACTIVE={STEPPER_ENABLE_ACTIVE}", flush=True)
 
     def enable_axis(self, axis: str, enabled: bool) -> None:
         if not self.available:
             return
-        GPIO.output(self.AXES[axis]["enable"], STEPPER_ENABLE_ACTIVE if enabled else STEPPER_ENABLE_INACTIVE)
+        lgpio.gpio_write(_GPIO_CHIP, self.AXES[axis]["enable"],
+                         STEPPER_ENABLE_ACTIVE if enabled else STEPPER_ENABLE_INACTIVE)
 
     def step_axis(self, axis: str, forward: bool, steps: int = MOVE_STEP_COUNT) -> None:
         pins = self.AXES.get(axis)
@@ -98,11 +99,11 @@ class UmbrellaStepperController:
         print(f"[GPIO] stepping {axis} {'forward' if forward else 'backward'} {steps} steps "
               f"(step={pins['step']}, dir={pins['dir']}, enable={pins['enable']})", flush=True)
         self.enable_axis(axis, True)
-        GPIO.output(pins["dir"], GPIO.HIGH if forward else GPIO.LOW)
+        lgpio.gpio_write(_GPIO_CHIP, pins["dir"], 1 if forward else 0)
         for _ in range(steps):
-            GPIO.output(pins["step"], GPIO.HIGH)
+            lgpio.gpio_write(_GPIO_CHIP, pins["step"], 1)
             time.sleep(STEP_PULSE_SECONDS)
-            GPIO.output(pins["step"], GPIO.LOW)
+            lgpio.gpio_write(_GPIO_CHIP, pins["step"], 0)
             time.sleep(STEP_PULSE_SECONDS)
         self.enable_axis(axis, False)
         print(f"[GPIO] done stepping {axis}", flush=True)
@@ -117,7 +118,8 @@ class UmbrellaStepperController:
         if not self.available:
             return
         self.stop_all()
-        GPIO.cleanup()
+        if _GPIO_CHIP is not None:
+            lgpio.gpiochip_close(_GPIO_CHIP)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

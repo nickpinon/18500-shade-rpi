@@ -1,51 +1,50 @@
 #!/usr/bin/env python3
 """
-Standalone motor test — no BLE needed.
-Run directly on the Pi:
-    sudo python3 motor_test.py
+Standalone motor test (lgpio — Pi 5 compatible).
+Run: sudo python3 ble/motor_test.py
 """
 
 import time
 import sys
 
 try:
-    import RPi.GPIO as GPIO
+    import lgpio
 except ImportError:
-    print("ERROR: RPi.GPIO not found. Run on the Raspberry Pi.")
+    print("ERROR: lgpio not found. Run: sudo apt install python3-lgpio")
     sys.exit(1)
 
 # ── Pin assignments (BCM) ─────────────────────────────────────────────────────
-VERTICAL_STEP   = 17
-VERTICAL_DIR    = 27
-VERTICAL_EN     = 22
+VERTICAL_STEP   = 23
+VERTICAL_DIR    = 24
+VERTICAL_EN     = 25
 
-HORIZONTAL_STEP = 23
-HORIZONTAL_DIR  = 24
-HORIZONTAL_EN   = 25
+HORIZONTAL_STEP = 17
+HORIZONTAL_DIR  = 27
+HORIZONTAL_EN   = 22
 
-PULSE_SECONDS = 0.0002
-STEPS         = 800   # steps per test move
+PULSE_SECONDS = 0.001
+STEPS         = 800
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
-GPIO.setwarnings(False)
-GPIO.setmode(GPIO.BCM)
-for pin in [VERTICAL_STEP, VERTICAL_DIR, VERTICAL_EN,
-            HORIZONTAL_STEP, HORIZONTAL_DIR, HORIZONTAL_EN]:
-    GPIO.setup(pin, GPIO.OUT, initial=GPIO.LOW)
+h = lgpio.gpiochip_open(0)
 
-# Disable both drivers at start (EN active LOW → HIGH = disabled)
-GPIO.output(VERTICAL_EN,   GPIO.HIGH)
-GPIO.output(HORIZONTAL_EN, GPIO.HIGH)
+for pin in [VERTICAL_STEP, VERTICAL_DIR, HORIZONTAL_STEP, HORIZONTAL_DIR]:
+    lgpio.gpio_claim_output(h, pin, 0)
+
+for pin in [VERTICAL_EN, HORIZONTAL_EN]:
+    lgpio.gpio_claim_output(h, pin, 1)  # start disabled (HIGH)
+
 
 def step(step_pin, dir_pin, en_pin, forward: bool, steps: int):
-    GPIO.output(en_pin,  GPIO.LOW)   # enable driver
-    GPIO.output(dir_pin, GPIO.HIGH if forward else GPIO.LOW)
+    lgpio.gpio_write(h, en_pin,  0)   # enable (active LOW)
+    lgpio.gpio_write(h, dir_pin, 1 if forward else 0)
     for _ in range(steps):
-        GPIO.output(step_pin, GPIO.HIGH)
+        lgpio.gpio_write(h, step_pin, 1)
         time.sleep(PULSE_SECONDS)
-        GPIO.output(step_pin, GPIO.LOW)
+        lgpio.gpio_write(h, step_pin, 0)
         time.sleep(PULSE_SECONDS)
-    GPIO.output(en_pin, GPIO.HIGH)   # disable driver
+    lgpio.gpio_write(h, en_pin, 1)    # disable
+
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
 try:
@@ -65,12 +64,12 @@ try:
     step(HORIZONTAL_STEP, HORIZONTAL_DIR, HORIZONTAL_EN, forward=False, steps=STEPS)
     time.sleep(0.5)
 
-    print("\nDone. If only one motor moved, the other driver's wiring needs fixing.")
+    print("\nDone.")
 
 except KeyboardInterrupt:
     print("\nStopped.")
 
 finally:
-    GPIO.output(VERTICAL_EN,   GPIO.HIGH)
-    GPIO.output(HORIZONTAL_EN, GPIO.HIGH)
-    GPIO.cleanup()
+    lgpio.gpio_write(h, VERTICAL_EN,   1)
+    lgpio.gpio_write(h, HORIZONTAL_EN, 1)
+    lgpio.gpiochip_close(h)

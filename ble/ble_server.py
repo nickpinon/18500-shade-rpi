@@ -113,16 +113,6 @@ class UmbrellaStepperController:
         for axis in self.AXES:
             self.enable_axis(axis, False)
 
-    def self_test(self) -> None:
-        """Pulse each axis briefly at startup so you can confirm both drivers are wired."""
-        if not self.available:
-            return
-        for axis in self.AXES:
-            print(f"[SELF-TEST] pulsing {axis} motor for 100 steps...", flush=True)
-            self.step_axis(axis, True, steps=100)
-            time.sleep(0.3)
-        print("[SELF-TEST] done — both axes should have moved.", flush=True)
-
     def cleanup(self) -> None:
         if not self.available:
             return
@@ -156,7 +146,6 @@ class UmbrellaState:
 state = UmbrellaState()
 state_lock = threading.Lock()
 gpio = UmbrellaStepperController()
-gpio.self_test()
 server: BlessServer | None = None
 
 

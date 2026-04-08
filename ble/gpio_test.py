@@ -12,9 +12,9 @@ except ImportError:
     print("ERROR: lgpio not found. Run: sudo apt install python3-lgpio")
     sys.exit(1)
 
-STEP = 23
-DIR  = 24
-EN   = 25
+STEP = 12
+DIR  = 13
+EN   = 16
 
 # Pi 5 uses gpiochip4 for the 40-pin header; Pi 4 and earlier use gpiochip0.
 # Try both and use whichever opens successfully.

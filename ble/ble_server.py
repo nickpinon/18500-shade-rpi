@@ -69,7 +69,7 @@ HORIZONTAL_ENABLE_PIN = 22
 
 STEPPER_ENABLE_ACTIVE   = 0
 STEPPER_ENABLE_INACTIVE = 1
-STEP_FREQUENCY_HZ       = 8000    # step rate
+STEP_FREQUENCY_HZ       = 3000    # slower = more torque, no stalling
 MOVE_STEP_COUNT         = 96000   # 60 full rotations at 8-microstep
 
 

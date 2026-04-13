@@ -69,8 +69,8 @@ HORIZONTAL_ENABLE_PIN = 22
 
 STEPPER_ENABLE_ACTIVE   = 0
 STEPPER_ENABLE_INACTIVE = 1
-STEP_PULSE_SECONDS      = 0.0002
-MOVE_STEP_COUNT         = 12800
+STEP_FREQUENCY_HZ       = 20000   # hardware PWM step rate
+MOVE_STEP_COUNT         = 20000   # steps per button press (1 second at 20 kHz)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -109,11 +109,10 @@ class UmbrellaStepperController:
               f"(step={pins['step']}, dir={pins['dir']}, enable={pins['enable']})", flush=True)
         self.enable_axis(axis, True)
         lgpio.gpio_write(_GPIO_CHIP, pins["dir"], 1 if forward else 0)
-        for _ in range(steps):
-            lgpio.gpio_write(_GPIO_CHIP, pins["step"], 1)
-            time.sleep(STEP_PULSE_SECONDS)
-            lgpio.gpio_write(_GPIO_CHIP, pins["step"], 0)
-            time.sleep(STEP_PULSE_SECONDS)
+        time.sleep(0.001)  # let DIR settle before stepping
+        lgpio.tx_pwm(_GPIO_CHIP, pins["step"], STEP_FREQUENCY_HZ, 50, 0, steps)
+        while lgpio.tx_busy(_GPIO_CHIP, pins["step"], lgpio.TX_PWM):
+            time.sleep(0.005)
         self.enable_axis(axis, False)
         print(f"[GPIO] done stepping {axis}", flush=True)
 

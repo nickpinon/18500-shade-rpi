@@ -1,119 +1,139 @@
 #!/usr/bin/env python3
 """
-Starter BLE peripheral for the Umbrella App.
+Umbrella BLE peripheral — bless GATT server.
 
-This script advertises a custom BLE service for the iPhone app and keeps a
-simple in-memory umbrella state. Replace the placeholder movement logic with
-your GPIO or motor controller integration when the hardware is ready.
+Uses the 'bless' library which correctly handles GATT registration on modern
+BlueZ / Raspberry Pi OS without the silent rejection issues of raw D-Bus.
+
+Setup (one time):
+    pip install bless
+
+Run with:
+    sudo python3 ble_server.py
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import signal
+import sys
 import threading
 import time
-from dataclasses import dataclass, asdict
-
-from bluezero import adapter, peripheral
+from dataclasses import asdict, dataclass
 
 try:
-    import RPi.GPIO as GPIO
-except ModuleNotFoundError:  # pragma: no cover - only available on Raspberry Pi
-    GPIO = None
+    from bless import (
+        BlessServer,
+        BlessGATTCharacteristic,
+        GATTCharacteristicProperties,
+        GATTAttributePermissions,
+    )
+except ImportError:
+    print("ERROR: 'bless' not installed.", file=sys.stderr)
+    print("Run:  pip install bless", file=sys.stderr)
+    sys.exit(1)
 
+try:
+    import lgpio
+    _GPIO_CHIP = None
+    for _chip_num in [4, 0]:
+        try:
+            _GPIO_CHIP = lgpio.gpiochip_open(_chip_num)
+            print(f"GPIO: opened gpiochip{_chip_num}", flush=True)
+            break
+        except Exception:
+            pass
+    if _GPIO_CHIP is None:
+        raise RuntimeError("No GPIO chip found")
+except Exception:
+    lgpio = None
+    _GPIO_CHIP = None
 
-DEVICE_NAME = "UmbrellaPi"
-SERVICE_UUID = "A4F1C6A0-7D5F-4E3D-8A91-102E88D13001"
-COMMAND_CHARACTERISTIC_UUID = "A4F1C6A0-7D5F-4E3D-8A91-102E88D13002"
-STATUS_CHARACTERISTIC_UUID = "A4F1C6A0-7D5F-4E3D-8A91-102E88D13003"
+logging.basicConfig(level=logging.WARNING)
 
-# BCM GPIO numbering
-VERTICAL_STEP_PIN = 17
-VERTICAL_DIR_PIN = 27
-VERTICAL_ENABLE_PIN = 22
-HORIZONTAL_STEP_PIN = 23
-HORIZONTAL_DIR_PIN = 24
-HORIZONTAL_ENABLE_PIN = 25
+# ── BLE identity ──────────────────────────────────────────────────────────────
+DEVICE_NAME       = "UmbrellaPi"
+SERVICE_UUID      = "a4f1c6a0-7d5f-4e3d-8a91-102e88d13001"
+COMMAND_CHAR_UUID = "a4f1c6a0-7d5f-4e3d-8a91-102e88d13002"
+STATUS_CHAR_UUID  = "a4f1c6a0-7d5f-4e3d-8a91-102e88d13003"
 
-STEPPER_ENABLE_ACTIVE = 0
+# ── GPIO / stepper constants (BCM numbering) ──────────────────────────────────
+VERTICAL_STEP_PIN     = 23
+VERTICAL_DIR_PIN      = 24
+VERTICAL_ENABLE_PIN   = 25
+HORIZONTAL_STEP_PIN   = 17
+HORIZONTAL_DIR_PIN    = 27
+HORIZONTAL_ENABLE_PIN = 22
+
+STEPPER_ENABLE_ACTIVE   = 0
 STEPPER_ENABLE_INACTIVE = 1
-STEP_PULSE_SECONDS = 0.001
-MOVE_STEP_COUNT = 80
+STEP_PULSE_SECONDS      = 0.0002
+MOVE_STEP_COUNT         = 12800
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stepper controller
+# ─────────────────────────────────────────────────────────────────────────────
 
 class UmbrellaStepperController:
-    """GPIO bridge for two stepper drivers using STEP/DIR/ENABLE pins."""
-
     AXES = {
-        "vertical": {
-            "step": VERTICAL_STEP_PIN,
-            "dir": VERTICAL_DIR_PIN,
-            "enable": VERTICAL_ENABLE_PIN,
-        },
-        "horizontal": {
-            "step": HORIZONTAL_STEP_PIN,
-            "dir": HORIZONTAL_DIR_PIN,
-            "enable": HORIZONTAL_ENABLE_PIN,
-        },
+        "vertical":   {"step": VERTICAL_STEP_PIN,   "dir": VERTICAL_DIR_PIN,   "enable": VERTICAL_ENABLE_PIN},
+        "horizontal": {"step": HORIZONTAL_STEP_PIN, "dir": HORIZONTAL_DIR_PIN, "enable": HORIZONTAL_ENABLE_PIN},
     }
 
     def __init__(self) -> None:
-        self.available = GPIO is not None
+        self.available = lgpio is not None and _GPIO_CHIP is not None
         if not self.available:
-            print("GPIO library not available; BLE commands will only update state.")
+            print("GPIO not available — motor commands will only log.", flush=True)
             return
-
-        GPIO.setwarnings(False)
-        GPIO.setmode(GPIO.BCM)
-        for pins in self.AXES.values():
-            GPIO.setup(pins["step"], GPIO.OUT, initial=GPIO.LOW)
-            GPIO.setup(pins["dir"], GPIO.OUT, initial=GPIO.LOW)
-            GPIO.setup(pins["enable"], GPIO.OUT, initial=STEPPER_ENABLE_INACTIVE)
+        for axis, pins in self.AXES.items():
+            lgpio.gpio_claim_output(_GPIO_CHIP, pins["step"],   0)
+            lgpio.gpio_claim_output(_GPIO_CHIP, pins["dir"],    0)
+            lgpio.gpio_claim_output(_GPIO_CHIP, pins["enable"], STEPPER_ENABLE_INACTIVE)
+            print(f"GPIO setup {axis}: step={pins['step']} dir={pins['dir']} enable={pins['enable']}", flush=True)
+        print(f"GPIO ready (lgpio). ENABLE_ACTIVE={STEPPER_ENABLE_ACTIVE}", flush=True)
 
     def enable_axis(self, axis: str, enabled: bool) -> None:
         if not self.available:
             return
+        lgpio.gpio_write(_GPIO_CHIP, self.AXES[axis]["enable"],
+                         STEPPER_ENABLE_ACTIVE if enabled else STEPPER_ENABLE_INACTIVE)
 
-        pins = self.AXES[axis]
-        GPIO.output(
-            pins["enable"],
-            STEPPER_ENABLE_ACTIVE if enabled else STEPPER_ENABLE_INACTIVE,
-        )
-
-    def step_axis(self, axis: str, forward: bool, steps: int = MOVE_STEP_COUNT) -> bool:
+    def step_axis(self, axis: str, forward: bool, steps: int = MOVE_STEP_COUNT) -> None:
         pins = self.AXES.get(axis)
-        if pins is None:
-            return False
-        if not self.available:
-            return True
-
+        if not pins or not self.available:
+            return
+        print(f"[GPIO] stepping {axis} {'forward' if forward else 'backward'} {steps} steps "
+              f"(step={pins['step']}, dir={pins['dir']}, enable={pins['enable']})", flush=True)
         self.enable_axis(axis, True)
-        GPIO.output(pins["dir"], GPIO.HIGH if forward else GPIO.LOW)
-
+        lgpio.gpio_write(_GPIO_CHIP, pins["dir"], 1 if forward else 0)
         for _ in range(steps):
-            GPIO.output(pins["step"], GPIO.HIGH)
+            lgpio.gpio_write(_GPIO_CHIP, pins["step"], 1)
             time.sleep(STEP_PULSE_SECONDS)
-            GPIO.output(pins["step"], GPIO.LOW)
+            lgpio.gpio_write(_GPIO_CHIP, pins["step"], 0)
             time.sleep(STEP_PULSE_SECONDS)
-
         self.enable_axis(axis, False)
-        return True
+        print(f"[GPIO] done stepping {axis}", flush=True)
 
     def stop_all(self) -> None:
         if not self.available:
             return
-
         for axis in self.AXES:
             self.enable_axis(axis, False)
 
     def cleanup(self) -> None:
         if not self.available:
             return
-
         self.stop_all()
-        GPIO.cleanup()
+        if _GPIO_CHIP is not None:
+            lgpio.gpiochip_close(_GPIO_CHIP)
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Umbrella state
+# ─────────────────────────────────────────────────────────────────────────────
 
 @dataclass
 class UmbrellaState:
@@ -130,166 +150,186 @@ class UmbrellaState:
         return json.dumps(asdict(self)).encode("utf-8")
 
 
-class UmbrellaBLEPeripheral:
-    def __init__(self) -> None:
-        adapters = list(adapter.Adapter.available())
-        if not adapters:
-            raise RuntimeError("No Bluetooth adapter found on this Raspberry Pi.")
+# ─────────────────────────────────────────────────────────────────────────────
+# Globals (shared between async loop and callbacks)
+# ─────────────────────────────────────────────────────────────────────────────
 
-        self.state = UmbrellaState()
-        self.lock = threading.Lock()
-        self.status_subscribed = False
-        self.gpio = UmbrellaStepperController()
-        self.ble = peripheral.Peripheral(
-            adapter_address=adapters[0].address,
-            local_name=DEVICE_NAME,
-            appearance=0,
-        )
+state = UmbrellaState()
+state_lock = threading.Lock()
+gpio = UmbrellaStepperController()
+server: BlessServer | None = None
 
-        self.ble.add_service(srv_id=1, uuid=SERVICE_UUID, primary=True)
-        self.ble.add_characteristic(
-            srv_id=1,
-            chr_id=1,
-            uuid=COMMAND_CHARACTERISTIC_UUID,
-            value=[],
-            notifying=False,
-            flags=["write", "write-without-response"],
-            write_callback=self.on_command_written,
-        )
-        self.ble.add_characteristic(
-            srv_id=1,
-            chr_id=2,
-            uuid=STATUS_CHARACTERISTIC_UUID,
-            value=list(self.state.to_bytes()),
-            notifying=True,
-            flags=["read", "notify"],
-            read_callback=self.read_status,
-            notify_callback=self.on_status_notify,
-        )
 
-    def start(self) -> None:
-        print(f"Advertising BLE umbrella service as {DEVICE_NAME}")
-        print(f"Service UUID: {SERVICE_UUID}")
-        print(
-            "Stepper GPIO map (BCM): "
-            f"vertical(step={VERTICAL_STEP_PIN}, dir={VERTICAL_DIR_PIN}, enable={VERTICAL_ENABLE_PIN}), "
-            f"horizontal(step={HORIZONTAL_STEP_PIN}, dir={HORIZONTAL_DIR_PIN}, enable={HORIZONTAL_ENABLE_PIN})"
-        )
-        self.ble.publish()
+# ─────────────────────────────────────────────────────────────────────────────
+# GATT callbacks
+# ─────────────────────────────────────────────────────────────────────────────
 
-    def stop(self) -> None:
-        print("Stopping BLE peripheral")
-        self.gpio.cleanup()
-        if hasattr(self.ble, "unpublish"):
-            self.ble.unpublish()
+def read_request(characteristic: BlessGATTCharacteristic, **kwargs) -> bytearray:
+    if characteristic.uuid.lower() == STATUS_CHAR_UUID:
+        with state_lock:
+            return bytearray(state.to_bytes())
+    return bytearray()
 
-    def read_status(self) -> list[int]:
-        with self.lock:
-            return list(self.state.to_bytes())
 
-    def on_status_notify(self, notifying: bool, characteristic) -> None:
-        self.status_subscribed = notifying
-        if notifying:
-            self.push_status()
+def write_request(characteristic: BlessGATTCharacteristic, value: Any, **kwargs) -> None:
+    print(f"[WRITE] char={characteristic.uuid}  val={bytes(value).hex()}", flush=True)
+    if characteristic.uuid.lower() != COMMAND_CHAR_UUID:
+        print(f"[WRITE] ignoring — expected {COMMAND_CHAR_UUID}", flush=True)
+        return
+    try:
+        payload = bytes(value).decode("utf-8")
+        command = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        print(f"Invalid BLE command payload: {exc}", flush=True)
+        return
 
-    def on_command_written(self, value, options) -> None:
-        try:
-            payload = bytes(value).decode("utf-8")
-            command = json.loads(payload)
-        except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            print(f"Invalid command payload: {error}")
+    handle_command(command)
+
+
+def handle_command(command: dict) -> None:
+    global state
+    cmd_type = command.get("type")
+    motion: tuple[str, bool] | None = None
+
+    with state_lock:
+        if cmd_type == "move":
+            direction = (command.get("direction") or "").lower()
+            delta = 5 if direction in {"up", "right"} else (-5 if direction in {"down", "left"} else 0)
+            state.position = max(0, min(100, state.position + delta))
+            state.moving = True
+            motion = {
+                "up":    ("vertical",   True),
+                "down":  ("vertical",   False),
+                "left":  ("horizontal", False),
+                "right": ("horizontal", True),
+            }.get(direction)
+            print(f"Move command received: {direction}", flush=True)
+
+        elif cmd_type == "stop":
+            state.moving = False
+            print("Stop command received", flush=True)
+
+        elif cmd_type == "mode":
+            value = command.get("value")
+            if isinstance(value, str) and value:
+                state.mode = value
+            print(f"Mode command received: {state.mode}", flush=True)
+
+        elif cmd_type == "location":
+            state.target_latitude  = command.get("latitude")
+            state.target_longitude = command.get("longitude")
+            state.target_accuracy  = command.get("accuracy")
+            state.target_timestamp = command.get("timestamp")
+            print(
+                f"Location received: {state.target_latitude}, "
+                f"{state.target_longitude} (±{state.target_accuracy}m)",
+                flush=True,
+            )
+
+        else:
+            print(f"Unknown command: {command}", flush=True)
             return
 
-        self.handle_command(command)
-        self.push_status()
+    if motion:
+        axis, forward = motion
+        threading.Thread(target=gpio.step_axis, args=(axis, forward), daemon=True).start()
+    elif cmd_type == "stop":
+        gpio.stop_all()
 
-    def handle_command(self, command: dict) -> None:
-        command_type = command.get("type")
-        motion: tuple[str, bool] | None = None
+    with state_lock:
+        if cmd_type == "move":
+            state.moving = False
 
-        with self.lock:
-            if command_type == "move":
-                direction = (command.get("direction") or "").lower()
-                delta = 0
-
-                if direction in {"up", "right"}:
-                    delta = 5
-                elif direction in {"down", "left"}:
-                    delta = -5
-
-                self.state.position = max(0, min(100, self.state.position + delta))
-                self.state.moving = True
-                if direction == "up":
-                    motion = ("vertical", True)
-                elif direction == "down":
-                    motion = ("vertical", False)
-                elif direction == "left":
-                    motion = ("horizontal", False)
-                elif direction == "right":
-                    motion = ("horizontal", True)
-                print(f"Move command received: {direction}")
-
-            elif command_type == "stop":
-                self.state.moving = False
-                print("Stop command received")
-
-            elif command_type == "mode":
-                value = command.get("value")
-                if isinstance(value, str) and value:
-                    self.state.mode = value
-                print(f"Mode command received: {self.state.mode}")
-
-            elif command_type == "location":
-                self.state.target_latitude = command.get("latitude")
-                self.state.target_longitude = command.get("longitude")
-                self.state.target_accuracy = command.get("accuracy")
-                self.state.target_timestamp = command.get("timestamp")
-                print(
-                    "Location received: "
-                    f"{self.state.target_latitude}, {self.state.target_longitude} "
-                    f"(accuracy {self.state.target_accuracy}m at {self.state.target_timestamp})"
-                )
-
-            else:
-                print(f"Unknown command: {command}")
-                return
-
-        if motion:
-            axis, forward = motion
-            self.gpio.step_axis(axis, forward)
-        elif command_type == "stop":
-            self.gpio.stop_all()
-        else:
-            time.sleep(0.1)
-
-        with self.lock:
-            if command_type == "move":
-                self.state.moving = False
-
-    def push_status(self) -> None:
-        try:
-            self.ble.update_characteristic_value(1, 2, list(self.read_status()))
-        except AttributeError:
-            # Older bluezero versions can still satisfy reads even if this helper
-            # is missing, so keep the server alive for development setups.
-            pass
+    _push_status()
 
 
-def main() -> None:
-    ble_peripheral = UmbrellaBLEPeripheral()
+def _push_status() -> None:
+    global server
+    if server is None:
+        return
+    with state_lock:
+        data = bytearray(state.to_bytes())
+    try:
+        char = server.get_characteristic(STATUS_CHAR_UUID)
+        if char is not None:
+            server.update_value(SERVICE_UUID, STATUS_CHAR_UUID)
+    except Exception:
+        pass
 
-    def shutdown_handler(signum, frame) -> None:
-        ble_peripheral.stop()
-        raise SystemExit(0)
 
-    signal.signal(signal.SIGINT, shutdown_handler)
-    signal.signal(signal.SIGTERM, shutdown_handler)
+# ─────────────────────────────────────────────────────────────────────────────
+# Async server
+# ─────────────────────────────────────────────────────────────────────────────
 
-    ble_peripheral.start()
+# Allow type annotation without importing at top level
+from typing import Any  # noqa: E402
 
-    while True:
-        time.sleep(1)
 
+async def run() -> None:
+    global server
+
+    loop = asyncio.get_event_loop()
+    server = BlessServer(name=DEVICE_NAME, loop=loop)
+    server.read_request_func = read_request
+    server.write_request_func = write_request
+
+    await server.add_new_service(SERVICE_UUID)
+
+    cmd_props = (
+        GATTCharacteristicProperties.write
+        | GATTCharacteristicProperties.write_without_response
+    )
+    await server.add_new_characteristic(
+        SERVICE_UUID,
+        COMMAND_CHAR_UUID,
+        cmd_props,
+        None,
+        GATTAttributePermissions.writeable,
+    )
+
+    sta_props = GATTCharacteristicProperties.read | GATTCharacteristicProperties.notify
+    with state_lock:
+        initial_value = bytearray(state.to_bytes())
+    await server.add_new_characteristic(
+        SERVICE_UUID,
+        STATUS_CHAR_UUID,
+        sta_props,
+        initial_value,
+        GATTAttributePermissions.readable,
+    )
+
+    await server.start()
+
+    print(f"\nAdvertising as '{DEVICE_NAME}'", flush=True)
+    print(f"Service UUID:  {SERVICE_UUID}", flush=True)
+    print(f"Command char:  {COMMAND_CHAR_UUID}", flush=True)
+    print(f"Status char:   {STATUS_CHAR_UUID}", flush=True)
+    print(
+        f"GPIO (BCM): vertical(step={VERTICAL_STEP_PIN}, dir={VERTICAL_DIR_PIN}, "
+        f"enable={VERTICAL_ENABLE_PIN}), "
+        f"horizontal(step={HORIZONTAL_STEP_PIN}, dir={HORIZONTAL_DIR_PIN}, "
+        f"enable={HORIZONTAL_ENABLE_PIN})\n",
+        flush=True,
+    )
+    print("Server running — waiting for connections...", flush=True)
+
+    stop_event = asyncio.Event()
+
+    def _shutdown(signum, frame):
+        print("\nShutting down...", flush=True)
+        gpio.cleanup()
+        loop.call_soon_threadsafe(stop_event.set)
+
+    signal.signal(signal.SIGINT,  _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
+
+    await stop_event.wait()
+    await server.stop()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Entry point
+# ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(run())

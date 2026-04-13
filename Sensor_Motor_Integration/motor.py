@@ -48,6 +48,7 @@ class MotorController:
             lgpio.gpio_claim_output(_GPIO_CHIP, pins["enable"], STEPPER_ENABLE_INACTIVE)
 
         print("[MOTOR] GPIO initialized")
+        self.busy = {"vertical": False, "horizontal": False}
 
     def enable_axis(self, axis, enabled):
         if not self.available:
@@ -64,6 +65,10 @@ class MotorController:
             print(f"[MOTOR-SIM] {axis} {'forward' if forward else 'backward'} {steps}")
             return
 
+        if self.busy.get(axis, False):
+            return
+
+        self.busy[axis] = True
         pins = self.AXES[axis]
 
         self.enable_axis(axis, True)
@@ -76,6 +81,7 @@ class MotorController:
             time.sleep(STEP_PULSE_SECONDS)
 
         self.enable_axis(axis, False)
+        self.busy[axis] = False
 
     def step_axis(self, axis, forward, steps=MOVE_STEP_COUNT):
         threading.Thread(

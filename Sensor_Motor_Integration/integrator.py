@@ -42,18 +42,6 @@ def get_sun_sensor_data():
     return alpha, beta, error_code
 
 
-# Manual Control Interface
-def get_manual_input():
-    """
-    @brief Retrieve manual control input from app
-
-    @return (left_cmd, right_cmd): motor commands
-    """
-    # TODO: Replace with app interface
-    return 0, 0
-
-
-
 # Motor Command Interface
 def send_motor_commands(error_x, error_y):
     """
@@ -113,29 +101,41 @@ def run():
             # -------------------------------
             with state_lock:
                 mode = state.mode
-                manual_left = state.manual_left_cmd
-                manual_right = state.manual_right_cmd
 
+            # Decide what errors to feed the motor controller
             if mode == "Manual":
-                left_cmd = manual_left
-                right_cmd = manual_right
+                direction = state.manual_direction
+
+                if direction == "left":
+                    error_x_cmd = -5
+                    error_y_cmd = 0
+                elif direction == "right":
+                    error_x_cmd = 5
+                    error_y_cmd = 0
+                elif direction == "up":
+                    error_x_cmd = 0
+                    error_y_cmd = 5
+                elif direction == "down":
+                    error_x_cmd = 0
+                    error_y_cmd = -5
+                else:
+                    error_x_cmd = 0
+                    error_y_cmd = 0
 
             elif mode == "Auto":
                 if error_x is None:
                     print("[AUTO] No user detected")
-                    left_cmd, right_cmd = 0, 0
+                    error_x_cmd, error_y_cmd = 0.0, 0.0
                 else:
-                    Kp = 0.01
-                    left_cmd = -Kp * error_x
-                    right_cmd = Kp * error_x
+                    error_x_cmd, error_y_cmd = error_x, error_y
 
             else:
-                left_cmd, right_cmd = 0, 0
+                error_x_cmd, error_y_cmd = 0.0, 0.0
 
             # -------------------------------
             # 4. Motor Output
             # -------------------------------
-            send_motor_commands(error_x, error_y)
+            send_motor_commands(error_x_cmd, error_y_cmd)
 
             # -------------------------------
             # 5. Debug Logging

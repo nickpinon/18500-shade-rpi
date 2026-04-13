@@ -74,33 +74,6 @@ MOVE_STEP_COUNT         = 12800
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Stepper controller
-# ─────────────────────────────────────────────────────────────────────────────
-
-class UmbrellaStepperController:
-    AXES = {
-        "vertical":   {"step": VERTICAL_STEP_PIN,   "dir": VERTICAL_DIR_PIN,   "enable": VERTICAL_ENABLE_PIN},
-        "horizontal": {"step": HORIZONTAL_STEP_PIN, "dir": HORIZONTAL_DIR_PIN, "enable": HORIZONTAL_ENABLE_PIN},
-    }
-
-    def __init__(self) -> None:
-        self.available = False
-        print("GPIO disabled in BLE — motor control handled by integrator.", flush=True)
-
-    def enable_axis(self, axis: str, enabled: bool) -> None:
-        return
-
-    def step_axis(self, axis: str, forward: bool, steps: int = MOVE_STEP_COUNT) -> None:
-        print(f"[GPIO-IGNORED] {axis} {'forward' if forward else 'backward'} {steps} steps", flush=True)
-
-    def stop_all(self) -> None:
-        print("[GPIO-IGNORED] stop_all", flush=True)
-
-    def cleanup(self) -> None:
-        return
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Umbrella state
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -110,12 +83,11 @@ class UmbrellaState:
     mode: str = "Manual"
     moving: bool = False
     connected: bool = True
-    manual_left_cmd: float = 0.0
-    manual_right_cmd: float = 0.0
     target_latitude: float | None = None
     target_longitude: float | None = None
     target_accuracy: float | None = None
     target_timestamp: str | None = None
+    manual_direction: str | None = None
 
     def to_bytes(self) -> bytes:
         return json.dumps(asdict(self)).encode("utf-8")
@@ -127,7 +99,6 @@ class UmbrellaState:
 
 state = UmbrellaState()
 state_lock = threading.Lock()
-gpio = UmbrellaStepperController()
 server: BlessServer | None = None
 
 
@@ -159,37 +130,21 @@ def write_request(characteristic: BlessGATTCharacteristic, value: Any, **kwargs)
 
 def handle_command(command: dict) -> None:
     global state
-    cmd_type = command.get("type")
-    motion: tuple[str, bool] | None = None  # deprecated (no direct motor control)
+    motion = None  # no direct GPIO control anymore
 
     with state_lock:
+        cmd_type = command.get("type")
         if cmd_type == "move":
             direction = (command.get("direction") or "").lower()
             delta = 5 if direction in {"up", "right"} else (-5 if direction in {"down", "left"} else 0)
             state.position = max(0, min(100, state.position + delta))
             state.moving = True
-            # Map directions to differential drive commands
-            if direction == "up":
-                state.manual_left_cmd = 1.0
-                state.manual_right_cmd = 1.0
-            elif direction == "down":
-                state.manual_left_cmd = -1.0
-                state.manual_right_cmd = -1.0
-            elif direction == "left":
-                state.manual_left_cmd = -1.0
-                state.manual_right_cmd = 1.0
-            elif direction == "right":
-                state.manual_left_cmd = 1.0
-                state.manual_right_cmd = -1.0
-            else:
-                state.manual_left_cmd = 0.0
-                state.manual_right_cmd = 0.0
+            state.manual_direction = direction
             print(f"Move command received: {direction}", flush=True)
 
         elif cmd_type == "stop":
             state.moving = False
-            state.manual_left_cmd = 0.0
-            state.manual_right_cmd = 0.0
+            state.manual_direction = None
             print("Stop command received", flush=True)
 
         elif cmd_type == "mode":
@@ -294,7 +249,6 @@ async def run() -> None:
 
     def _shutdown(signum, frame):
         print("\nShutting down...", flush=True)
-        gpio.cleanup()
         loop.call_soon_threadsafe(stop_event.set)
 
     signal.signal(signal.SIGINT,  _shutdown)

@@ -70,7 +70,7 @@ HORIZONTAL_ENABLE_PIN = 22
 STEPPER_ENABLE_ACTIVE   = 0
 STEPPER_ENABLE_INACTIVE = 1
 STEP_FREQUENCY_HZ       = 5000    # hardware PWM step rate (lgpio max ~10kHz)
-MOVE_STEP_COUNT         = 10000   # steps per button press (2 seconds at 5 kHz)
+MOVE_STEP_COUNT         = 40000   # steps per button press (8 seconds at 5 kHz)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

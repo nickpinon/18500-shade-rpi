@@ -10,4 +10,5 @@ ai-edge-litert
 #sudo apt install libcap-dev
 
 # sudo apt update
+# sudo apt install libcamera-dev python3-libcamera
 # sudo apt install python3-libcamera python3-libcamera-dev

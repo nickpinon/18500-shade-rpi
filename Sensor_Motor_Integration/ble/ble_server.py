@@ -80,7 +80,7 @@ MOVE_STEP_COUNT         = 12800
 @dataclass
 class UmbrellaState:
     position: int = 52
-    mode: str = "Manual"
+    mode: str = "Auto"
     moving: bool = False
     connected: bool = True
     target_latitude: float | None = None
@@ -149,9 +149,15 @@ def handle_command(command: dict) -> None:
 
         elif cmd_type == "mode":
             value = command.get("value")
-            if isinstance(value, str) and value:
-                state.mode = value
-            print(f"Mode command received: {state.mode}", flush=True)
+
+            if isinstance(value, str):
+                value = value.strip().lower()
+
+                if value in {"manual", "auto"}:
+                    state.mode = value.capitalize()
+                    print(f"[BLE] Mode set to {state.mode}", flush=True)
+                else:
+                    print(f"[BLE] Invalid mode: {value}", flush=True)
 
         elif cmd_type == "location":
             state.target_latitude  = command.get("latitude")

@@ -142,6 +142,7 @@ def run():
             # -------------------------------
             print(f"[SUN] alpha={alpha:.2f}, beta={beta:.2f}, err={sun_error}")
             print(f"[USER] err_x={error_x}, err_y={error_y}")
+            print(f"[MODE] {mode}")
             print("-" * 40)
 
             # -------------------------------

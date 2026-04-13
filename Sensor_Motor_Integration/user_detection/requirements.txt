@@ -5,8 +5,8 @@ ai-edge-litert
 # diagot-imp
 #pip install ai-edge-litert
 
-#sudo apt update
-#sudo apt install libcap-dev
+# sudo apt update
+# sudo apt install libcap-dev
 
 # sudo apt update
 # sudo apt install python3-libcamera python3-libcamera-dev

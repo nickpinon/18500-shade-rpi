@@ -48,7 +48,8 @@ def get_torso_center(keypoints):
 # --- Setup (runs once) ---
 HEADLESS = os.environ.get("DISPLAY") is None
 
-detector = MoveNetPoseDetector(model_path="movenet_lightning.tflite")
+model_path = os.path.join(os.path.dirname(__file__), "movenet_lightning.tflite")
+detector = MoveNetPoseDetector(model_path)
 
 picam2 = Picamera2()
 picam2.configure(picam2.create_preview_configuration(

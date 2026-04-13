@@ -69,8 +69,8 @@ HORIZONTAL_ENABLE_PIN = 22
 
 STEPPER_ENABLE_ACTIVE   = 0
 STEPPER_ENABLE_INACTIVE = 1
-STEP_FREQUENCY_HZ       = 8000    # hardware PWM step rate (near lgpio max)
-MOVE_STEP_COUNT         = 240000  # 30 seconds of motion at 8kHz
+STEP_FREQUENCY_HZ       = 2000    # step rate
+MOVE_STEP_COUNT         = 9600    # 6 full rotations at 8-microstep (200*8*6)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

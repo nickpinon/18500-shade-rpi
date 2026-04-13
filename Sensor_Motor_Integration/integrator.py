@@ -9,16 +9,12 @@ Coordinates:
 NOTE: GPIO motor control will be added later.
 """
 
-from Sensor_Motor_Integration.user_detection import (
-    init_user_detection,
-    get_user_errors,
-    shutdown_user_detection,
-)
+from .user_detection import init_user_detection, get_user_errors, shutdown_user_detection
 
 # from ..sun_sensor import get_sun_sensor_data
 
 import time
-from ..ble.ble_server import state, state_lock
+from .ble.ble_server import state, state_lock
 from .motor import motor
 
 

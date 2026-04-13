@@ -15,16 +15,24 @@ except Exception:
     _GPIO_CHIP = None
 
 
-STEP_PULSE_SECONDS = 0.001
-MOVE_STEP_COUNT = 50
-STEPPER_ENABLE_ACTIVE = 0
+# ── GPIO / stepper constants (BCM numbering) ──────────────────────────────────
+VERTICAL_STEP_PIN     = 12
+VERTICAL_DIR_PIN      = 13
+VERTICAL_ENABLE_PIN   = 16
+HORIZONTAL_STEP_PIN   = 17
+HORIZONTAL_DIR_PIN    = 27
+HORIZONTAL_ENABLE_PIN = 22
+
+STEPPER_ENABLE_ACTIVE   = 0
 STEPPER_ENABLE_INACTIVE = 1
+STEP_PULSE_SECONDS      = 0.0002
+MOVE_STEP_COUNT         = 12800
 
 
 class MotorController:
     AXES = {
-        "horizontal": {"step": 17, "dir": 27, "enable": 22},
-        "vertical": {"step": 23, "dir": 24, "enable": 25},
+        "vertical":   {"step": VERTICAL_STEP_PIN,   "dir": VERTICAL_DIR_PIN,   "enable": VERTICAL_ENABLE_PIN},
+        "horizontal": {"step": HORIZONTAL_STEP_PIN, "dir": HORIZONTAL_DIR_PIN, "enable": HORIZONTAL_ENABLE_PIN},
     }
 
     def __init__(self):

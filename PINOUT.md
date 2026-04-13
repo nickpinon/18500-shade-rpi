@@ -1,4 +1,4 @@
-# UmbrellaPi Hardware Wiring Guide
+# Shade.Ai Hardware Wiring Guide
 
 This document defines the physical and logical pin mappings for the UmbrellaPi project. All software references use **BCM (GPIO) numbering**.
 

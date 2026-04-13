@@ -1,4 +1,4 @@
-bluezero
+bless
 numpy
 opencv-python
 picamera2

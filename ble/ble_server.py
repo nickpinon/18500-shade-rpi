@@ -84,51 +84,20 @@ class UmbrellaStepperController:
     }
 
     def __init__(self) -> None:
-        self.available = lgpio is not None and _GPIO_CHIP is not None
-        if not self.available:
-            print("GPIO not available — motor commands will only log.", flush=True)
-            return
-        for axis, pins in self.AXES.items():
-            lgpio.gpio_claim_output(_GPIO_CHIP, pins["step"],   0)
-            lgpio.gpio_claim_output(_GPIO_CHIP, pins["dir"],    0)
-            lgpio.gpio_claim_output(_GPIO_CHIP, pins["enable"], STEPPER_ENABLE_INACTIVE)
-            print(f"GPIO setup {axis}: step={pins['step']} dir={pins['dir']} enable={pins['enable']}", flush=True)
-        print(f"GPIO ready (lgpio). ENABLE_ACTIVE={STEPPER_ENABLE_ACTIVE}", flush=True)
+        self.available = False
+        print("GPIO disabled in BLE — motor control handled by integrator.", flush=True)
 
     def enable_axis(self, axis: str, enabled: bool) -> None:
-        if not self.available:
-            return
-        lgpio.gpio_write(_GPIO_CHIP, self.AXES[axis]["enable"],
-                         STEPPER_ENABLE_ACTIVE if enabled else STEPPER_ENABLE_INACTIVE)
+        return
 
     def step_axis(self, axis: str, forward: bool, steps: int = MOVE_STEP_COUNT) -> None:
-        pins = self.AXES.get(axis)
-        if not pins or not self.available:
-            return
-        print(f"[GPIO] stepping {axis} {'forward' if forward else 'backward'} {steps} steps "
-              f"(step={pins['step']}, dir={pins['dir']}, enable={pins['enable']})", flush=True)
-        self.enable_axis(axis, True)
-        lgpio.gpio_write(_GPIO_CHIP, pins["dir"], 1 if forward else 0)
-        for _ in range(steps):
-            lgpio.gpio_write(_GPIO_CHIP, pins["step"], 1)
-            time.sleep(STEP_PULSE_SECONDS)
-            lgpio.gpio_write(_GPIO_CHIP, pins["step"], 0)
-            time.sleep(STEP_PULSE_SECONDS)
-        self.enable_axis(axis, False)
-        print(f"[GPIO] done stepping {axis}", flush=True)
+        print(f"[GPIO-IGNORED] {axis} {'forward' if forward else 'backward'} {steps} steps", flush=True)
 
     def stop_all(self) -> None:
-        if not self.available:
-            return
-        for axis in self.AXES:
-            self.enable_axis(axis, False)
+        print("[GPIO-IGNORED] stop_all", flush=True)
 
     def cleanup(self) -> None:
-        if not self.available:
-            return
-        self.stop_all()
-        if _GPIO_CHIP is not None:
-            lgpio.gpiochip_close(_GPIO_CHIP)
+        return
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -141,6 +110,8 @@ class UmbrellaState:
     mode: str = "Manual"
     moving: bool = False
     connected: bool = True
+    manual_left_cmd: float = 0.0
+    manual_right_cmd: float = 0.0
     target_latitude: float | None = None
     target_longitude: float | None = None
     target_accuracy: float | None = None
@@ -189,7 +160,7 @@ def write_request(characteristic: BlessGATTCharacteristic, value: Any, **kwargs)
 def handle_command(command: dict) -> None:
     global state
     cmd_type = command.get("type")
-    motion: tuple[str, bool] | None = None
+    motion: tuple[str, bool] | None = None  # deprecated (no direct motor control)
 
     with state_lock:
         if cmd_type == "move":
@@ -197,16 +168,28 @@ def handle_command(command: dict) -> None:
             delta = 5 if direction in {"up", "right"} else (-5 if direction in {"down", "left"} else 0)
             state.position = max(0, min(100, state.position + delta))
             state.moving = True
-            motion = {
-                "up":    ("vertical",   True),
-                "down":  ("vertical",   False),
-                "left":  ("horizontal", False),
-                "right": ("horizontal", True),
-            }.get(direction)
+            # Map directions to differential drive commands
+            if direction == "up":
+                state.manual_left_cmd = 1.0
+                state.manual_right_cmd = 1.0
+            elif direction == "down":
+                state.manual_left_cmd = -1.0
+                state.manual_right_cmd = -1.0
+            elif direction == "left":
+                state.manual_left_cmd = -1.0
+                state.manual_right_cmd = 1.0
+            elif direction == "right":
+                state.manual_left_cmd = 1.0
+                state.manual_right_cmd = -1.0
+            else:
+                state.manual_left_cmd = 0.0
+                state.manual_right_cmd = 0.0
             print(f"Move command received: {direction}", flush=True)
 
         elif cmd_type == "stop":
             state.moving = False
+            state.manual_left_cmd = 0.0
+            state.manual_right_cmd = 0.0
             print("Stop command received", flush=True)
 
         elif cmd_type == "mode":
@@ -229,12 +212,6 @@ def handle_command(command: dict) -> None:
         else:
             print(f"Unknown command: {command}", flush=True)
             return
-
-    if motion:
-        axis, forward = motion
-        threading.Thread(target=gpio.step_axis, args=(axis, forward), daemon=True).start()
-    elif cmd_type == "stop":
-        gpio.stop_all()
 
     with state_lock:
         if cmd_type == "move":

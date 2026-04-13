@@ -62,50 +62,54 @@ prev_center = None
 last_motor_update = time.time()
 prev_time = time.time()
 
-try:
-    while True:
-        frame = picam2.capture_array()
-        keypoints = detector.detect(frame)
+# --- API for integrator script ---
 
-        center = get_torso_center(keypoints)
-        if center is None:
-            print("No user detected")
-            continue
+_initialized = False
 
-        # Smooth position
-        if prev_center is None:
-            cx, cy = center
-        else:
-            cx = int(ALPHA * prev_center[0] + (1 - ALPHA) * center[0])
-            cy = int(ALPHA * prev_center[1] + (1 - ALPHA) * center[1])
-        prev_center = (cx, cy)
+def init_user_detection():
+    global _initialized, detector, picam2, prev_center, last_motor_update, prev_time
+    if _initialized:
+        return
+    _initialized = True
+    prev_center = None
+    last_motor_update = time.time()
+    prev_time = time.time()
 
-        # Compute error
-        error_x = cx - FRAME_W // 2
-        error_y = cy - FRAME_H // 2
+def get_user_errors():
+    global prev_center, last_motor_update, prev_time
 
-        # Dead zone
-        if abs(error_x) < DEAD_ZONE:
-            error_x = 0
-        if abs(error_y) < DEAD_ZONE:
-            error_y = 0
+    frame = picam2.capture_array()
+    keypoints = detector.detect(frame)
 
-        # Rate-limited motor update
-        now = time.time()
-        if now - last_motor_update >= 1.0 / MOTOR_HZ:
-            fps = 1 / (now - prev_time)
-            print(f"error_x: {error_x:+4d}  error_y: {error_y:+4d}  FPS: {fps:.1f}")
-            # TODO: send error_x, error_y to motor controller here
-            last_motor_update = now
+    center = get_torso_center(keypoints)
+    if center is None:
+        return None, None
 
-        prev_time = now
+    # Smooth position
+    if prev_center is None:
+        cx, cy = center
+    else:
+        cx = int(ALPHA * prev_center[0] + (1 - ALPHA) * center[0])
+        cy = int(ALPHA * prev_center[1] + (1 - ALPHA) * center[1])
+    prev_center = (cx, cy)
 
-        if not HEADLESS:
-            cv2.imshow("ShadeAI User Tracking", frame)
-            if cv2.waitKey(1) == 27:
-                break
+    # Compute error
+    error_x = cx - FRAME_W // 2
+    error_y = cy - FRAME_H // 2
 
-finally:
+    # Dead zone
+    if abs(error_x) < DEAD_ZONE:
+        error_x = 0
+    if abs(error_y) < DEAD_ZONE:
+        error_y = 0
+
+    now = time.time()
+    prev_time = now
+
+    return error_x, error_y
+
+
+def shutdown_user_detection():
     picam2.stop()
     if not HEADLESS:
         cv2.destroyAllWindows()

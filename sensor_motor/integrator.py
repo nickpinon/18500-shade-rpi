@@ -22,7 +22,7 @@ from .motor import motor
 
 # Configuration
 # (speed) = LOOP_HZ × steps_per_loop
-LOOP_HZ = 30  # main loop frequency (Hz)
+LOOP_HZ = 10  # main loop frequency (Hz)
 
 
 # === State ===

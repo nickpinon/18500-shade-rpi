@@ -257,8 +257,8 @@ async def run() -> None:
         print("\nShutting down...", flush=True)
         loop.call_soon_threadsafe(stop_event.set)
 
-    signal.signal(signal.SIGINT,  _shutdown)
-    signal.signal(signal.SIGTERM, _shutdown)
+    # signal.signal(signal.SIGINT,  _shutdown)
+    # signal.signal(signal.SIGTERM, _shutdown)
 
     await stop_event.wait()
     await server.stop()

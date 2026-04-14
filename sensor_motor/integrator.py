@@ -79,6 +79,16 @@ def send_motor_commands(error_x, error_y):
 def run():
     global running
 
+    # -------------------------------
+    # Start BLE server in background
+    # -------------------------------
+    def _start_ble():
+        asyncio.run(ble_run())
+
+    ble_thread = threading.Thread(target=_start_ble, daemon=True)
+    ble_thread.start()
+    print("[BLE] Server started in background thread")
+
     print("Initializing systems...")
     init_user_detection()
 

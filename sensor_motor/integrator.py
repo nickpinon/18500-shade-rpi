@@ -14,12 +14,15 @@ from .user_detection.userDetection import init_user_detection, get_user_errors, 
 # from ..sun_sensor import get_sun_sensor_data
 
 import time
-from .ble.ble_server import state, state_lock
+from .ble.ble_server import state, state_lock, run as ble_run
+import threading
+import asyncio
 from .motor import motor
 
 
 # Configuration
-LOOP_HZ = 10  # main loop frequency (Hz)
+# (speed) = LOOP_HZ × steps_per_loop
+LOOP_HZ = 30  # main loop frequency (Hz)
 
 
 # === State ===

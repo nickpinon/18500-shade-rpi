@@ -4,7 +4,7 @@ from mahony_fusion import MahonyFilter
 import time
 
 def main():
-    imu = LSM9DS1()
+    imu = LSM9DS1(bus_id=6)
     imu.calibrate()
     imu.calibrate_mag()
     fusion = MahonyFilter(kp=0.5, ki=0.0)

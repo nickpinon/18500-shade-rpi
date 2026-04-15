@@ -17,7 +17,7 @@ def main():
     imu.calibrate()
     mag_sensor.calibrate()
     
-    fusion = MahonyFilter(kp=5, ki=0.01)
+    fusion = MahonyFilter(kp=5, ki=0.01, use_new_boards=True)
 
     print("\n--- 9-DOF Absolute Orientation Active ---")
     while True:

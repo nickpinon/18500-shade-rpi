@@ -36,7 +36,7 @@ from mahony_fusion import MahonyFilter
 def main():
     try:
         sensor = IMU_DRIVER(bus_id=1)
-        fusion = MahonyFilter(kp=5.0, ki=0.01, use_new_boards=USE_NEW_BOARDS)
+        fusion = MahonyFilter(kp=0.5, ki=0.01, use_new_boards=USE_NEW_BOARDS)
 
         print(f"\n--- {'Dual-Board' if USE_NEW_BOARDS else 'LSM9DS1'} Active ---")
         print("Press Ctrl+C to exit.")

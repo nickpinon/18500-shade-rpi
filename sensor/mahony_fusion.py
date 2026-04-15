@@ -9,11 +9,12 @@ import math
 import time
 
 class MahonyFilter:
-    def __init__(self, kp=0.5, ki=0.0):
+    def __init__(self, kp=0.5, ki=0.0, use_new_boards=False):
         # Kp (Proportional Gain): Controls the rate of convergence to accel/mag references.
         # Ki (Integral Gain): Corrects for long-term gyroscope bias/drift.
         self.kp = kp
         self.ki = ki
+        self.use_new_boards = use_new_boards  # Store the hardware flag
         self.q = [1.0, 0.0, 0.0, 0.0]  # Initial Quaternion (No rotation)
         self.e_int = [0.0, 0.0, 0.0]    # Integral error storage
         self.last_time = time.time()
@@ -23,13 +24,20 @@ class MahonyFilter:
         Updates the orientation quaternion based on 9DOF sensor data.
         g: gyro [rad/s], a: accel [g], m: mag [Gauss]
         """
-        # 1. Coordinate Remapping (LSM9DS1 -> NWU)
-        # J. Remington identifies that the Mag axes are rotated relative to Accel/Gyro.
-        ax, ay, az = -a[0], -a[1], a[2]
-        gx, gy, gz = -g[0], -g[1], g[2]
-        mx, my, mz = -m[1], -m[0], -m[2]
+        
+        if self.use_new_boards:
+            # Mapping for LSM6DSOX + LSM303AGR (Typically aligned axes)
+            ax, ay, az = a[0], a[1], a[2]
+            gx, gy, gz = g[0], g[1], g[2]
+            mx, my, mz = m[0], m[1], m[2]
+        else:
+            # Original LSM9DS1 mapping (Remington NWU convention)
+            ax, ay, az = -a[0], -a[1], a[2]
+            gx, gy, gz = -g[0], -g[1], g[2]
+            mx, my, mz = -m[1], -m[0], -m[2]
 
         now = time.time()
+        # ... [rest of the update algorithm logic remains the same] ...
         dt = now - self.last_time
         self.last_time = now
 

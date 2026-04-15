@@ -30,7 +30,7 @@ class LSM303AGR:
         my = (raw[1] - self.mag_bias[1]) * 0.0015
         mz = (raw[2] - self.mag_bias[2]) * 0.0015
 
-        return [mx, -my, mz]
+        return [mx, my, mz]
 
     def calibrate(self, samples=200):
         print("Calibrating Mag... ROTATE IN FIGURE-8!")

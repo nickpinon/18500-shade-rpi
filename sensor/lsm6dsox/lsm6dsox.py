@@ -18,12 +18,16 @@ class LSM6DSOX:
 
     def _init_sensor(self):
         # Verify connection
-        if self.bus.read_byte_data(self.ADDR, reg.WHO_AM_I) != reg.WHO_AM_I_RSP:
-            raise ConnectionError("LSM6DSOX not detected! Check address 0x6A.")
+        who_am_i = self.bus.read_byte_data(self.ADDR, reg.WHO_AM_I)
+        if who_am_i != reg.WHO_AM_I_RSP:
+            raise ConnectionError(f"LSM6DSOX not detected! Check address {hex(self.ADDR)}")
         
-        # Software Reset
-        self.bus.write_byte_data(self.ADDR, reg.CTRL3_C, 0x01)
+        # Software Reset + Ensure Auto-Increment (IF_INC bit) is active
+        # 0x05 triggers reset (bit 0) and keeps IF_INC (bit 2) active
+        self.bus.write_byte_data(self.ADDR, reg.CTRL3_C, 0x05)
         time.sleep(0.1)
+        # Set to 0x04 to ensure IF_INC is on after the reset clears
+        self.bus.write_byte_data(self.ADDR, reg.CTRL3_C, 0x04)
 
         # Power on Accel: 104Hz, +/- 2g
         self.bus.write_byte_data(self.ADDR, reg.CTRL1_XL, 0x40)

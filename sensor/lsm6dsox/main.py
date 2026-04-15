@@ -25,7 +25,7 @@ def main():
         roll, pitch, yaw = fusion.update(gyro, accel, mag)
         
         output = f"Roll: {roll:>7.2f}° | Pitch: {pitch:>7.2f}° | Yaw: {yaw:>7.2f}°"
-        print(output, end="\r", flush=True)
+        print(output)
         time.sleep(0.05)
 
 if __name__ == "__main__":

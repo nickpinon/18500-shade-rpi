@@ -17,28 +17,34 @@ class LSM6DSOX:
         self._init_sensor()
 
     def _init_sensor(self):
-        # Verify connection
+        # 1. Verify connection
         who_am_i = self.bus.read_byte_data(self.ADDR, reg.WHO_AM_I)
         if who_am_i != reg.WHO_AM_I_RSP:
-            raise ConnectionError(f"LSM6DSOX not detected! Check address {hex(self.ADDR)}")
+            raise ConnectionError(f"LSM6DSOX not detected at {hex(self.ADDR)}!")
         
-        # Software Reset + Ensure Auto-Increment (IF_INC bit) is active
-        # 0x05 triggers reset (bit 0) and keeps IF_INC (bit 2) active
-        self.bus.write_byte_data(self.ADDR, reg.CTRL3_C, 0x05)
-        time.sleep(0.1)
-        # Set to 0x04 to ensure IF_INC is on after the reset clears
-        self.bus.write_byte_data(self.ADDR, reg.CTRL3_C, 0x04)
+        # 2. Software Reset
+        self.bus.write_byte_data(self.ADDR, reg.CTRL3_C, 0x01)
+        time.sleep(0.1) # Wait for reboot
 
-        # Power on Accel: 104Hz, +/- 2g
+        # 3. Enable BDU (Block Data Update) and IF_INC (Auto-increment)
+        # 0x44 sets Bit 6 (BDU) and Bit 2 (IF_INC)
+        self.bus.write_byte_data(self.ADDR, reg.CTRL3_C, 0x44)
+
+        # 4. Power on: 104Hz, +/- 2g / 250 dps
         self.bus.write_byte_data(self.ADDR, reg.CTRL1_XL, 0x40)
-        # Power on Gyro: 104Hz, +/- 250 dps
         self.bus.write_byte_data(self.ADDR, reg.CTRL2_G, 0x40)
 
+        # 5. Verification: Read back to ensure registers were written
+        check = self.bus.read_byte_data(self.ADDR, reg.CTRL1_XL)
+        if check != 0x40:
+            print(f"Warning: Accel config failed to write! Read: {hex(check)}")
+    
     def _combine_bytes(self, low, high):
         val = (high << 8) | low
         return val - 65536 if val > 32767 else val
 
     def _read_16bit_vector(self, start_reg):
+        # NO '| 0x80' here for LSM6DSOX
         data = self.bus.read_i2c_block_data(self.ADDR, start_reg, 6)
         return [
             self._combine_bytes(data[0], data[1]),

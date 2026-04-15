@@ -15,8 +15,8 @@ if USE_NEW_BOARDS:
     class IMU_DRIVER:
         def __init__(self, bus_id=1):
             # Paths are relative to where you run main.py
-            self.imu = LSM6DSOX(bus_id=bus_id, bias_file="imu_bias.json")
-            self.mag = LSM303AGR(bus_id=bus_id, bias_file="mag_bias.json")
+            self.imu = LSM6DSOX(bus_id=bus_id, bias_file="lsm6dsox/imu_bias.json")
+            self.mag = LSM303AGR(bus_id=bus_id, bias_file="lsm6dsox/mag_bias.json")
 
         def read_accel(self): return self.imu.read_accel()
         def read_gyro(self):  return self.imu.read_gyro()

@@ -10,7 +10,7 @@ USE_NEW_BOARDS = True
 
 if USE_NEW_BOARDS:
     from lsm6dsox.lsm6dsox import LSM6DSOX
-    from lsm303agr import LSM303AGR
+    from lsm6dsox.lsm303agr import LSM303AGR
     
     class IMU_DRIVER:
         def __init__(self, bus_id=1):

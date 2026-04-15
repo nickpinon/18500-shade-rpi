@@ -29,7 +29,7 @@ class MahonyFilter:
             # Mapping for LSM6DSOX + LSM303AGR (Typically aligned axes)
             ax, ay, az = a[0], a[1], a[2]
             gx, gy, gz = g[0], g[1], g[2]
-            mx, my, mz = m[1], m[0], -m[2]
+            mx, my, mz = m[0], m[1], m[2]
         else:
             # Original LSM9DS1 mapping (Remington NWU convention)
             ax, ay, az = -a[0], -a[1], a[2]

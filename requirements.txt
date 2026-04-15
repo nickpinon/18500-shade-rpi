@@ -12,3 +12,5 @@ ai-edge-litert
 # sudo apt update
 # sudo apt install libcamera-dev python3-libcamera
 # sudo apt install python3-libcamera python3-libcamera-dev
+
+# sed -i 's/include-system-site-packages = false/include-system-site-packages = true/' ~/18500-shade-rpi/motor/pyvenv.cfg

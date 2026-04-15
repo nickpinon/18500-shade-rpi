@@ -18,7 +18,7 @@ def main():
     imu.calibrate()
     mag_sensor.calibrate()
     
-    fusion = MahonyFilter(kp=2.0, ki=0.01, use_new_boards=True)
+    fusion = MahonyFilter(kp=5.0, ki=0.0, use_new_boards=True)
 
     print("\n--- Warming up AHRS Filter ---")
     # Temporarily crank up the proportional gain
@@ -33,7 +33,7 @@ def main():
         time.sleep(0.002) # Very short delay
         
     # Return gain to normal for smooth, noise-resistant operation
-    fusion.kp = 2.0 
+    fusion.kp = 5.0 
 
     print("\n--- 9-DOF Absolute Orientation Active ---")
     while True:

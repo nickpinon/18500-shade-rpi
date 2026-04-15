@@ -87,6 +87,9 @@ class UmbrellaState:
     target_longitude: float | None = None
     target_accuracy: float | None = None
     target_timestamp: str | None = None
+    sun_azimuth: float | None = None
+    sun_elevation: float | None = None
+    sun_source: str | None = None
     manual_direction: str | None = None
 
     def to_bytes(self) -> bytes:
@@ -193,6 +196,15 @@ def _push_status() -> None:
             server.update_value(SERVICE_UUID, STATUS_CHAR_UUID)
     except Exception:
         pass
+
+
+def update_sun_status(azimuth: float, elevation: float, source: str) -> None:
+    """Update computed sun fields and notify BLE subscribers."""
+    with state_lock:
+        state.sun_azimuth = azimuth
+        state.sun_elevation = elevation
+        state.sun_source = source
+    _push_status()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

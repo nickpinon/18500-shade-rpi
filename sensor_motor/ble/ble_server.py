@@ -74,6 +74,7 @@ MOVE_STEP_COUNT         = 96000   # 60 full rotations at 8-microstep
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+<<<<<<< HEAD:ble/ble_server.py
 # Stepper controller
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -131,19 +132,22 @@ class UmbrellaStepperController:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+=======
+>>>>>>> motor-integrator:sensor_motor/ble/ble_server.py
 # Umbrella state
 # ─────────────────────────────────────────────────────────────────────────────
 
 @dataclass
 class UmbrellaState:
     position: int = 52
-    mode: str = "Manual"
+    mode: str = "Auto"
     moving: bool = False
     connected: bool = True
     target_latitude: float | None = None
     target_longitude: float | None = None
     target_accuracy: float | None = None
     target_timestamp: str | None = None
+    manual_direction: str | None = None
 
     def to_bytes(self) -> bytes:
         return json.dumps(asdict(self)).encode("utf-8")
@@ -155,7 +159,6 @@ class UmbrellaState:
 
 state = UmbrellaState()
 state_lock = threading.Lock()
-gpio = UmbrellaStepperController()
 server: BlessServer | None = None
 
 
@@ -187,32 +190,34 @@ def write_request(characteristic: BlessGATTCharacteristic, value: Any, **kwargs)
 
 def handle_command(command: dict) -> None:
     global state
-    cmd_type = command.get("type")
-    motion: tuple[str, bool] | None = None
+    motion = None  # no direct GPIO control anymore
 
     with state_lock:
+        cmd_type = command.get("type")
         if cmd_type == "move":
             direction = (command.get("direction") or "").lower()
             delta = 5 if direction in {"up", "right"} else (-5 if direction in {"down", "left"} else 0)
             state.position = max(0, min(100, state.position + delta))
             state.moving = True
-            motion = {
-                "up":    ("vertical",   True),
-                "down":  ("vertical",   False),
-                "left":  ("horizontal", False),
-                "right": ("horizontal", True),
-            }.get(direction)
+            state.manual_direction = direction
             print(f"Move command received: {direction}", flush=True)
 
         elif cmd_type == "stop":
             state.moving = False
+            state.manual_direction = None
             print("Stop command received", flush=True)
 
         elif cmd_type == "mode":
             value = command.get("value")
-            if isinstance(value, str) and value:
-                state.mode = value
-            print(f"Mode command received: {state.mode}", flush=True)
+
+            if isinstance(value, str):
+                value = value.strip().lower()
+
+                if value in {"manual", "auto"}:
+                    state.mode = value.capitalize()
+                    print(f"[BLE] Mode set to {state.mode}", flush=True)
+                else:
+                    print(f"[BLE] Invalid mode: {value}", flush=True)
 
         elif cmd_type == "location":
             state.target_latitude  = command.get("latitude")
@@ -228,12 +233,6 @@ def handle_command(command: dict) -> None:
         else:
             print(f"Unknown command: {command}", flush=True)
             return
-
-    if motion:
-        axis, forward = motion
-        threading.Thread(target=gpio.step_axis, args=(axis, forward), daemon=True).start()
-    elif cmd_type == "stop":
-        gpio.stop_all()
 
     with state_lock:
         if cmd_type == "move":
@@ -316,11 +315,10 @@ async def run() -> None:
 
     def _shutdown(signum, frame):
         print("\nShutting down...", flush=True)
-        gpio.cleanup()
         loop.call_soon_threadsafe(stop_event.set)
 
-    signal.signal(signal.SIGINT,  _shutdown)
-    signal.signal(signal.SIGTERM, _shutdown)
+    # signal.signal(signal.SIGINT,  _shutdown)
+    # signal.signal(signal.SIGTERM, _shutdown)
 
     await stop_event.wait()
     await server.stop()

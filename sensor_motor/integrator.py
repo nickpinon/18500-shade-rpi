@@ -15,7 +15,7 @@ from .sun_location import calculate_sun_direction
 # from ..sun_sensor import get_sun_sensor_data
 
 import time
-from .ble.ble_server import state, state_lock, run as ble_run, update_sun_status
+from .ble.ble_server import state, state_lock, run as ble_run
 import threading
 import asyncio
 from .motor import motor
@@ -46,12 +46,13 @@ def get_sun_sensor_data():
         timestamp = state.target_timestamp
 
     sun = calculate_sun_direction(latitude, longitude, timestamp)
-    update_sun_status(sun.azimuth_deg, sun.elevation_deg, sun.source)
+    # update_sun_status(sun.azimuth_deg, sun.elevation_deg, sun.source)
     alpha = sun.azimuth_deg
     beta = sun.elevation_deg
     # 0 = exact BLE location, 1 = fallback default location
     error_code = 0 if sun.source == "ble_location" else 1
-    return alpha, beta, error_code
+    # return alpha, beta, error_code
+    return 0, 0, 0
 
 
 # Motor Command Interface

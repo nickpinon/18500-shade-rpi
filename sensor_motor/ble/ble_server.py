@@ -74,69 +74,6 @@ MOVE_STEP_COUNT         = 96000   # 60 full rotations at 8-microstep
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-<<<<<<< HEAD
-<<<<<<< HEAD:ble/ble_server.py
-# Stepper controller
-# ─────────────────────────────────────────────────────────────────────────────
-
-class UmbrellaStepperController:
-    AXES = {
-        "vertical":   {"step": VERTICAL_STEP_PIN,   "dir": VERTICAL_DIR_PIN,   "enable": VERTICAL_ENABLE_PIN},
-        "horizontal": {"step": HORIZONTAL_STEP_PIN, "dir": HORIZONTAL_DIR_PIN, "enable": HORIZONTAL_ENABLE_PIN},
-    }
-
-    def __init__(self) -> None:
-        self.available = lgpio is not None and _GPIO_CHIP is not None
-        if not self.available:
-            print("GPIO not available — motor commands will only log.", flush=True)
-            return
-        for axis, pins in self.AXES.items():
-            lgpio.gpio_claim_output(_GPIO_CHIP, pins["step"],   0)
-            lgpio.gpio_claim_output(_GPIO_CHIP, pins["dir"],    0)
-            lgpio.gpio_claim_output(_GPIO_CHIP, pins["enable"], STEPPER_ENABLE_INACTIVE)
-            print(f"GPIO setup {axis}: step={pins['step']} dir={pins['dir']} enable={pins['enable']}", flush=True)
-        print(f"GPIO ready (lgpio). ENABLE_ACTIVE={STEPPER_ENABLE_ACTIVE}", flush=True)
-
-    def enable_axis(self, axis: str, enabled: bool) -> None:
-        if not self.available:
-            return
-        lgpio.gpio_write(_GPIO_CHIP, self.AXES[axis]["enable"],
-                         STEPPER_ENABLE_ACTIVE if enabled else STEPPER_ENABLE_INACTIVE)
-
-    def step_axis(self, axis: str, forward: bool, steps: int = MOVE_STEP_COUNT) -> None:
-        pins = self.AXES.get(axis)
-        if not pins or not self.available:
-            return
-        print(f"[GPIO] stepping {axis} {'forward' if forward else 'backward'} {steps} steps "
-              f"(step={pins['step']}, dir={pins['dir']}, enable={pins['enable']})", flush=True)
-        self.enable_axis(axis, True)
-        lgpio.gpio_write(_GPIO_CHIP, pins["dir"], 1 if forward else 0)
-        time.sleep(0.001)  # let DIR settle before stepping
-        lgpio.tx_pwm(_GPIO_CHIP, pins["step"], STEP_FREQUENCY_HZ, 50, 0, steps)
-        while lgpio.tx_busy(_GPIO_CHIP, pins["step"], lgpio.TX_PWM):
-            time.sleep(0.005)
-        self.enable_axis(axis, False)
-        print(f"[GPIO] done stepping {axis}", flush=True)
-
-    def stop_all(self) -> None:
-        if not self.available:
-            return
-        for axis in self.AXES:
-            self.enable_axis(axis, False)
-
-    def cleanup(self) -> None:
-        if not self.available:
-            return
-        self.stop_all()
-        if _GPIO_CHIP is not None:
-            lgpio.gpiochip_close(_GPIO_CHIP)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-=======
->>>>>>> motor-integrator:sensor_motor/ble/ble_server.py
-=======
->>>>>>> bbb11adee37322b4024998212f00c4426733b049
 # Umbrella state
 # ─────────────────────────────────────────────────────────────────────────────
 

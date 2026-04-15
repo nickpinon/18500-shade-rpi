@@ -58,13 +58,13 @@ def step(step_pin, dir_pin, en_pin, forward: bool, steps: int):
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
 try:
-    print(f"Testing VERTICAL motor (step={VERTICAL_STEP}, dir={VERTICAL_DIR}, en={VERTICAL_EN})")
-    print("  → forward...")
-    step(VERTICAL_STEP, VERTICAL_DIR, VERTICAL_EN, forward=True,  steps=STEPS)
-    time.sleep(0.5)
-    print("  → backward...")
-    step(VERTICAL_STEP, VERTICAL_DIR, VERTICAL_EN, forward=False, steps=STEPS)
-    time.sleep(0.5)
+    # print(f"Testing VERTICAL motor (step={VERTICAL_STEP}, dir={VERTICAL_DIR}, en={VERTICAL_EN})")
+    # print("  → forward...")
+    # step(VERTICAL_STEP, VERTICAL_DIR, VERTICAL_EN, forward=True,  steps=STEPS)
+    # time.sleep(0.5)
+    # print("  → backward...")
+    # step(VERTICAL_STEP, VERTICAL_DIR, VERTICAL_EN, forward=False, steps=STEPS)
+    # time.sleep(0.5)
 
     print(f"\nTesting HORIZONTAL motor (step={HORIZONTAL_STEP}, dir={HORIZONTAL_DIR}, en={HORIZONTAL_EN})")
     print("  → forward...")

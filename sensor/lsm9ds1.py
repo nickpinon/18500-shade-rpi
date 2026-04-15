@@ -115,10 +115,69 @@ class LSM9DS1:
         # The Midpoint Formula: (Max + Min) / 2
         self.mag_bias = [(mag_max[i] + mag_min[i]) / 2 for i in range(3)]
 
-    def _combine_bytes(self, low, high):
-        val = (high << 8) | low
-        return val - 65536 if val > 32767 else val
-      
+# ---------------------------
+# Threading/Interrupt Implementation 
+
+import json 
+import os
+import threading
+from gpiozero import DigitalInputDevice
+
+class ThreadedIMU(LSM9DS1):
+    def __init__(self, bus_id=1, interrupt_pin=17):
+        super().__init__(bus_id)
+        self.lock = threading.Lock()
+        self.data = {"accel": [0,0,0], "gyro": [0,0,0], "mag": [0,0,0]}
+        self.new_data_event = threading.Event()
+        
+        # 1. Pi 5 Interrupt Setup using gpiozero
+        self.interrupt_device = DigitalInputDevice(interrupt_pin, pull_up=False)
+        self.interrupt_device.when_activated = self._data_ready_callback
+
+        # 2. Enable Data Ready (DRDY) on the LSM9DS1 hardware INT1 pin
+        # 0x03 enables both Gyro and Accel Data Ready interrupts on INT1
+        self.bus.write_byte_data(self.AG_ADDR, reg.INT1_CTRL, 0x03) 
+
+    def _data_ready_callback(self):
+        """Hardware interrupt triggers this callback."""
+        with self.lock:
+            self.data["accel"] = self.read_accel()
+            self.data["gyro"] = self.read_gyro()
+            self.data["mag"] = self.read_mag()
+        self.new_data_event.set()
+
+    def get_latest_fusion(self, fusion_engine):
+        """Waits for hardware interrupt, then updates Mahony once."""
+        self.new_data_event.wait() 
+        with self.lock:
+            orientation = fusion_engine.update(
+                self.data["gyro"], self.data["accel"], self.data["mag"]
+            )
+        self.new_data_event.clear()
+        return orientation
+
+    # --- Bias Tuning & Saving Functions ---
+    def save_calibration(self, filename="calibration.json"):
+        data = {
+            "accel_bias": self.accel_bias,
+            "gyro_bias": getattr(self, 'gyro_bias', [0,0,0]),
+            "mag_bias": getattr(self, 'mag_bias', [0,0,0])
+        }
+        with open(filename, 'w') as f:
+            json.dump(data, f, indent=4)
+        print(f"Calibration saved to {filename}. You can edit this file to tune biases.")
+
+    def load_calibration(self, filename="calibration.json"):
+        if os.path.exists(filename):
+            with open(filename, 'r') as f:
+                data = json.load(f)
+                self.accel_bias = data.get("accel_bias", [0,0,0])
+                self.gyro_bias = data.get("gyro_bias", [0,0,0])
+                self.mag_bias = data.get("mag_bias", [0,0,0])
+            print(f"Loaded tuned calibration from {filename}")
+            return True
+        return False
+    
 if __name__ == "__main__":
     imu = LSM9DS1()
     imu.calibrate()

@@ -1,0 +1,10 @@
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IMU Calibration/Bias Files
+sensor/imu_bias.json
+sensor/mag_bias.json
+sensor/lsm6dsox/*.json

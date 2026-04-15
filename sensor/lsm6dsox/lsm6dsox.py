@@ -15,45 +15,29 @@ class LSM6DSOX:
         self.bias_file = bias_file
         self.accel_bias = [0.0, 0.0, 0.0]
         self.gyro_bias = [0.0, 0.0, 0.0]
-        
         self.load_bias()
         self._init_sensor()
 
     def _init_sensor(self):
-        if self.bus.read_byte_data(self.ADDR, reg.WHO_AM_I) != reg.WHO_AM_I_RSP:
-            raise ConnectionError("LSM6DSOX not detected!")
-        
-        # Soft reset + Enable BDU & Auto-Increment (0x44)
-        self.bus.write_byte_data(self.ADDR, reg.CTRL3_C, 0x01)
-        time.sleep(0.1)
-        self.bus.write_byte_data(self.ADDR, reg.CTRL3_C, 0x44)
-
-        # Power on: 104Hz, 2g / 250dps
-        self.bus.write_byte_data(self.ADDR, reg.CTRL1_XL, 0x40)
-        self.bus.write_byte_data(self.ADDR, reg.CTRL2_G, 0x40)
+        try:
+            if self.bus.read_byte_data(self.ADDR, reg.WHO_AM_I) != reg.WHO_AM_I_RSP:
+                raise ConnectionError("LSM6DSOX not detected!")
+            self.bus.write_byte_data(self.ADDR, reg.CTRL3_C, 0x01) # Reset
+            time.sleep(0.1)
+            self.bus.write_byte_data(self.ADDR, reg.CTRL3_C, 0x44) # BDU + IF_INC
+            self.bus.write_byte_data(self.ADDR, reg.CTRL1_XL, 0x40) # Accel ON
+            self.bus.write_byte_data(self.ADDR, reg.CTRL2_G, 0x40)  # Gyro ON
+        except Exception as e:
+            print(f"LSM6DSOX Init Failed: {e}")
 
     def _combine_bytes(self, low, high):
         val = (high << 8) | low
         return val - 65536 if val > 32767 else val
 
     def _read_16bit_vector(self, start_reg):
-        """Attempts the faster I2C block read (6 bytes)."""
-        try:
-            # This is the 'old way' but using the correct I2C-specific command
-            data = self.bus.read_i2c_block_data(self.ADDR, start_reg, 6)
-            return [
-                self._combine_bytes(data[0], data[1]),
-                self._combine_bytes(data[2], data[3]),
-                self._combine_bytes(data[4], data[5])
-            ]
-        except Exception:
-            # Fallback to byte-by-byte if the block read fails again
-            vals = [self.bus.read_byte_data(self.ADDR, start_reg + i) for i in range(6)]
-            return [
-                self._combine_bytes(vals[0], vals[1]),
-                self._combine_bytes(vals[2], vals[3]),
-                self._combine_bytes(vals[4], vals[5])
-            ]
+        """Uses the faster I2C block read."""
+        data = self.bus.read_i2c_block_data(self.ADDR, start_reg, 6)
+        return [self._combine_bytes(data[i*2], data[i*2+1]) for i in range(3)]
 
     def read_accel(self):
         raw = self._read_16bit_vector(reg.OUTX_L_A)
@@ -63,13 +47,24 @@ class LSM6DSOX:
         raw = self._read_16bit_vector(reg.OUTX_L_G)
         return [(raw[i] - self.gyro_bias[i]) * self.SENS_G_250 * (math.pi / 180) for i in range(3)]
 
-    # --- Bias Management ---
+    def calibrate(self, samples=100):
+        print("Calibrating IMU... Keep it level and still.")
+        a_sums, g_sums = [0,0,0], [0,0,0]
+        for _ in range(samples):
+            a, g = self._read_16bit_vector(reg.OUTX_L_A), self._read_16bit_vector(reg.OUTX_L_G)
+            for i in range(3):
+                a_sums[i] += a[i]
+                g_sums[i] += g[i]
+            time.sleep(0.01)
+        self.gyro_bias = [s/samples for s in g_sums]
+        self.accel_bias = [a_sums[0]/samples, a_sums[1]/samples, (a_sums[2]/samples) - (1.0/self.SENS_A_2G)]
+        self.save_bias()
+
     def load_bias(self):
         if os.path.exists(self.bias_file):
             with open(self.bias_file, 'r') as f:
-                data = json.load(f)
-                self.accel_bias = data.get("accel", [0, 0, 0])
-                self.gyro_bias = data.get("gyro", [0, 0, 0])
+                d = json.load(f)
+                self.accel_bias, self.gyro_bias = d.get("accel", [0,0,0]), d.get("gyro", [0,0,0])
 
     def save_bias(self):
         with open(self.bias_file, 'w') as f:

@@ -27,8 +27,14 @@ class LSM6DSOX:
             self.bus.write_byte_data(self.ADDR, reg.CTRL3_C, 0x01) # Reset
             time.sleep(0.1)
             self.bus.write_byte_data(self.ADDR, reg.CTRL3_C, 0x44) # BDU + IF_INC
-            self.bus.write_byte_data(self.ADDR, reg.CTRL1_XL, 0x40) # Accel ON
-            self.bus.write_byte_data(self.ADDR, reg.CTRL2_G, 0x40)  # Gyro ON
+            self.bus.write_byte_data(self.ADDR, reg.CTRL1_XL, 0x40) # Accel ON (104Hz)
+            self.bus.write_byte_data(self.ADDR, reg.CTRL2_G, 0x40)  # Gyro ON (104Hz)
+            
+            # --- NEW: Enable Hardware Interrupts ---
+            # 0x0D is INT1_CTRL. 
+            # 0x03 enables both Accel (0x01) and Gyro (0x02) Data Ready signals on the INT1 pin
+            self.bus.write_byte_data(self.ADDR, 0x0D, 0x03) 
+            
         except Exception as e:
             print(f"LSM6DSOX Init Failed: {e}")
 

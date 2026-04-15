@@ -3,8 +3,7 @@ import math
 import time
 import os
 import json
-import registers_dsox as reg
-
+from . import registers_dsox as reg
 class LSM6DSOX:
     ADDR = 0x6A
     SENS_A_2G = 0.000061

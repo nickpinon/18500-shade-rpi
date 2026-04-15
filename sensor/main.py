@@ -36,13 +36,29 @@ from mahony_fusion import MahonyFilter
 def main():
     try:
         sensor = IMU_DRIVER(bus_id=1)
-        fusion = MahonyFilter(kp=1, ki=0.01, use_new_boards=USE_NEW_BOARDS)
+        
+        # --- FILTER TUNING ---
+        # ki=0.0 prevents integral windup (rubber-banding / slow settling)
+        # kp=5.0 gives a snappy response to the magnetometer
+        fusion = MahonyFilter(kp=5.0, ki=0.0, use_new_boards=USE_NEW_BOARDS)
 
         print(f"\n--- {'Dual-Board' if USE_NEW_BOARDS else 'LSM9DS1'} Active ---")
-        print("Press Ctrl+C to exit.")
 
-        # Uncomment the next line if you want to force calibration on every start
+        # Uncomment to force calibration on every start
         # sensor.calibrate()
+
+        # --- WARM-UP PHASE ---
+        print("\n--- Warming up AHRS Filter ---")
+        fusion.kp = 10.0 # Temporarily high gain to force instant convergence
+        for _ in range(250):
+            accel = sensor.read_accel()
+            gyro = sensor.read_gyro()
+            mag = sensor.read_mag()
+            fusion.update(gyro, accel, mag)
+            time.sleep(0.002) # Rapid fire updates
+            
+        fusion.kp = 5.0 # Return to standard operation
+        print("--- Warmup Complete. Press Ctrl+C to exit. ---")
 
         while True:
             # Data Acquisition
@@ -53,8 +69,22 @@ def main():
             # Orientation Fusion
             roll, pitch, yaw = fusion.update(gyro, accel, mag)
 
-            # Clean Terminal Output
-            print(f"Roll: {roll:>7.2f}° | Pitch: {pitch:>7.2f}° | Yaw: {yaw:>7.2f}°", end="\r", flush=True)
+            # --- YAW CORRECTIONS ---
+            # 1. Local magnetic declination (~8.5 degrees West)
+            DECLINATION = -8.5
+            
+            # 2. Physical Board Mount Offset (to fix the -60 degree offset)
+            BOARD_MOUNT_OFFSET = 60.0 
+            
+            # Apply corrections for True Yaw
+            true_yaw = yaw + DECLINATION + BOARD_MOUNT_OFFSET
+            
+            # Normalize to keep output strictly between 0 and 360 degrees
+            true_yaw = true_yaw % 360.0
+
+            # Clean Terminal Output (Matches lsm6dsox/main.py formatting)
+            output = f"Roll: {roll:>7.2f}° | Pitch: {pitch:>7.2f}° | Yaw: {true_yaw:>7.2f}°"
+            print(output, end="\r", flush=True)
 
             # Maintain ~50Hz loop
             time.sleep(0.02)

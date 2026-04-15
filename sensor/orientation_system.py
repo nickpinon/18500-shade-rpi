@@ -47,13 +47,15 @@ class OrientationTracker:
         self._data_ready_event.set()
 
     def _update_loop(self):
-        """Background thread loop that blocks at 0% CPU until interrupted."""
+        """Background thread loop that blocks at 0% CPU until interrupted, with auto-recovery."""
         while self._running:
-            # Wait for the hardware interrupt signal (timeout prevents deadlock if sensor dies)
-            if self._data_ready_event.wait(timeout=0.1):
-                self._data_ready_event.clear()
-                
-                # Fetch Data
+            # Wait for the interrupt. 
+            # If 0.1s passes (meaning the pin might be stuck high), it stops waiting and moves on.
+            self._data_ready_event.wait(timeout=0.1)
+            self._data_ready_event.clear()
+            
+            try:
+                # Fetch Data (This action forces the sensor to pull the interrupt pin back LOW)
                 accel = self.imu.read_accel()
                 gyro = self.imu.read_gyro()
                 mag = self.mag.read_mag()
@@ -69,6 +71,9 @@ class OrientationTracker:
                     self._roll = r
                     self._pitch = p
                     self._yaw = true_yaw
+            except Exception as e:
+                # If an I2C read collides or fails, it won't crash the invisible thread silently anymore
+                print(f" Sensor Read Error: {e}")
 
     def start(self):
         """Spawns the background tracking thread."""

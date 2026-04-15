@@ -24,7 +24,14 @@ class LSM303AGR:
     def read_mag(self):
         data = self.bus.read_i2c_block_data(self.MAG_ADDR, 0x68, 6)
         raw = [self._combine_bytes(data[i*2], data[i*2+1]) for i in range(3)]
-        return [(raw[i] - self.mag_bias[i]) * 0.0015 for i in range(3)]
+        
+        # Apply bias and convert to Gauss
+        mx = (raw[0] - self.mag_bias[0]) * 0.0015
+        my = (raw[1] - self.mag_bias[1]) * 0.0015
+        mz = (raw[2] - self.mag_bias[2]) * 0.0015
+
+        # INVERT Y-AXIS HERE
+        return [mx, -my, mz]
 
     def calibrate(self, samples=200):
         print("Calibrating Mag... ROTATE IN FIGURE-8!")

@@ -14,7 +14,7 @@ class LSM303AGR:
         self._init_mag()
 
     def _init_mag(self):
-        self.bus.write_byte_data(self.MAG_ADDR, 0x60, 0x00) # 10Hz Continuous
+        self.bus.write_byte_data(self.MAG_ADDR, 0x60, 0x0C) # 10Hz Continuous
         self.bus.write_byte_data(self.MAG_ADDR, 0x62, 0x10) # BDU
 
     def _combine_bytes(self, low, high):

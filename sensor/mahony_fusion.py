@@ -9,7 +9,7 @@ import math
 import time
 
 class MahonyFilter:
-    def __init__(self, kp=0.5, ki=0.0, use_new_boards=True):
+    def __init__(self, kp=0.5, ki=0.0, use_new_boards=False):
         # Kp (Proportional Gain): Controls the rate of convergence to accel/mag references.
         # Ki (Integral Gain): Corrects for long-term gyroscope bias/drift.
         self.kp = kp

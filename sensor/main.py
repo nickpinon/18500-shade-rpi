@@ -77,7 +77,7 @@ def main():
             BOARD_MOUNT_OFFSET = 60.0 
             
             # Apply corrections for True Yaw
-            true_yaw = yaw + DECLINATION + BOARD_MOUNT_OFFSET
+            true_yaw = yaw + DECLINATION
             
             # Normalize to keep output strictly between 0 and 360 degrees
             true_yaw = true_yaw % 360.0
@@ -87,7 +87,7 @@ def main():
             print(output, end="\r", flush=True)
 
             # Maintain ~50Hz loop
-            time.sleep(0.02)
+            time.sleep(0.01)
 
     except KeyboardInterrupt:
         print("\nShutting down gracefully...")

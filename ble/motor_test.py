@@ -22,7 +22,7 @@ HORIZONTAL_STEP = 23
 HORIZONTAL_DIR  = 24
 HORIZONTAL_EN   = 25
 
-PULSE_SECONDS = 0.005
+PULSE_SECONDS = 0.001
 STEPS         = 800
 
 # ── Setup ─────────────────────────────────────────────────────────────────────

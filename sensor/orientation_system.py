@@ -7,7 +7,7 @@ from lsm6dsox.lsm303agr import LSM303AGR
 from mahony_fusion import MahonyFilter
 
 class OrientationTracker:
-    def __init__(self, bus_id=1, interrupt_pin=17, declination=-8.5, mount_offset=60.0):
+    def __init__(self, bus_id=1, interrupt_pin=4, declination=-8.5, mount_offset=60.0):
         self.declination = declination
         self.mount_offset = mount_offset
         

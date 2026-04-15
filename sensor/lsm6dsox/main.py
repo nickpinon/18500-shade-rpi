@@ -27,10 +27,10 @@ def main():
         # Inside your while loop in lsm6dsox/main.py
         mag = mag_sensor.read_mag()
         # Calculate a simple 2D heading from the mag alone (in degrees)
-        mag_heading = math.degrees(math.atan2(mag[1], mag[0]))
-        mag_magnitude = math.sqrt(mag[0]**2 + mag[1]**2 + mag[2]**2)
+        # mag_heading = math.degrees(math.atan2(mag[1], mag[0]))
+        # mag_magnitude = math.sqrt(mag[0]**2 + mag[1]**2 + mag[2]**2)
 
-        print(f"Mag Heading: {mag_heading:>7.2f} | Strength: {mag_magnitude:>7.2f}", end="\r")
+        # print(f"Mag Heading: {mag_heading:>7.2f} | Strength: {mag_magnitude:>7.2f}", end="\r")
 
         # Fusion now has real data for all 9 axes
         roll, pitch, yaw = fusion.update(gyro, accel, mag)

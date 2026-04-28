@@ -1,6 +1,6 @@
 import time
 import lgpio
-from TMC_2209 import TMC_2209
+import TMC_2209
 
 # --- Hardware Configuration (BCM numbering from PINOUT.md) ---
 # Horizontal Motor Pins

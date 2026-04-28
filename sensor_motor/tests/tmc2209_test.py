@@ -6,50 +6,48 @@ STEP_PIN = 17
 DIR_PIN = 27
 EN_PIN = 22
 
-def test_standalone():
-    print("--- Testing Standalone Step/Dir Movement ---")
+# A slower, safer speed to prevent power supply overload
+# 0.005 seconds = 10 milliseconds per full step cycle
+STEP_DELAY = 0.005 
+
+def run_continuous():
+    print("--- Starting Continuous Motor Test ---")
     
     try:
         chip = lgpio.gpiochip_open(0)
-        # Claim pins
+        # Claim the logic pins
         lgpio.gpio_claim_output(chip, STEP_PIN, 0)
         lgpio.gpio_claim_output(chip, DIR_PIN, 0)
-        lgpio.gpio_claim_output(chip, EN_PIN, 1) # Start Disabled (High)
-        print("Pins initialized.")
+        lgpio.gpio_claim_output(chip, EN_PIN, 1) # 1 is Disabled
+        print("Pins initialized successfully.")
     except Exception as e:
         print(f"Failed to claim pins: {e}")
         return
 
     try:
-        print("Enabling motor... (Should hear a slight hiss or lock up)")
-        lgpio.gpio_write(chip, EN_PIN, 0) # Enable (Low)
+        print("Enabling motor...")
+        lgpio.gpio_write(chip, EN_PIN, 0) # 0 is Enabled (Active Low)
         time.sleep(0.5)
 
-        print("Moving forward...")
+        # Set direction (1 = forward, 0 = backward)
         lgpio.gpio_write(chip, DIR_PIN, 1)
-        for _ in range(800): # Just a short burst
-            lgpio.gpio_write(chip, STEP_PIN, 1)
-            time.sleep(0.001) # Slower pulse to be safe
-            lgpio.gpio_write(chip, STEP_PIN, 0)
-            time.sleep(0.001)
-            
-        time.sleep(0.5)
         
-        print("Moving backward...")
-        lgpio.gpio_write(chip, DIR_PIN, 0)
-        for _ in range(800):
+        print("Spinning continuously... Press Ctrl+C to stop.")
+        
+        # Infinite loop for continuous movement
+        while True:
             lgpio.gpio_write(chip, STEP_PIN, 1)
-            time.sleep(0.001)
+            time.sleep(STEP_DELAY)
             lgpio.gpio_write(chip, STEP_PIN, 0)
-            time.sleep(0.001)
-            
-        print("Done.")
+            time.sleep(STEP_DELAY)
 
     except KeyboardInterrupt:
-        print("\nStopping.")
+        print("\nStopping motor...")
     finally:
-        lgpio.gpio_write(chip, EN_PIN, 1) # Disable
+        # Crucial: Disable the motor to cut power draw
+        lgpio.gpio_write(chip, EN_PIN, 1)
         lgpio.gpiochip_close(chip)
+        print("Cleanup complete.")
 
 if __name__ == "__main__":
-    test_standalone()
+    run_continuous()

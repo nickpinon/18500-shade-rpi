@@ -1,6 +1,6 @@
 import time
 import lgpio
-from TMC2209.TMC2209_uart import TMC2209_uart
+from tmc2209 import TMC2209
 
 # --- GPIO Configuration ---
 STEP_PIN = 17

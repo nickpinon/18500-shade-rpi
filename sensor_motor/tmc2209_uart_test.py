@@ -17,7 +17,7 @@ def run_test():
     # 1. Initialize TMC2209 FIRST
     # The library claims the pins using gpiozero. Do NOT claim them with lgpio yet.
     try:
-        tmc = TMC_2209(STEP_PIN, DIR_PIN, EN_PIN, serialport="/dev/serial0")
+        tmc = TMC_2209(STEP_PIN, DIR_PIN, EN_PIN, serialport="/dev/ttyAMA0")
         
         if tmc.get_interface_transmission_counter() is None:
             print("[UART] ERROR: Communication failed. Check 1k resistor and RX/TX wiring!")

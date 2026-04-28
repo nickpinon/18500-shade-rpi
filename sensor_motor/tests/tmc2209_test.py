@@ -8,7 +8,7 @@ EN_PIN = 22
 
 # A slower, safer speed to prevent power supply overload
 # 0.005 seconds = 10 milliseconds per full step cycle
-STEP_DELAY = 0.005 
+STEP_DELAY = 0.001 
 
 def run_continuous():
     print("--- Starting Continuous Motor Test ---")

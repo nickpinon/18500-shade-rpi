@@ -2,13 +2,13 @@ import time
 import lgpio
 
 # Pins from your PINOUT.md
-STEP_PIN = 23
-DIR_PIN = 24
-EN_PIN = 25
+STEP_PIN = 17
+DIR_PIN = 27
+EN_PIN = 22
 
 # A slower, safer speed to prevent power supply overload
 # 0.005 seconds = 10 milliseconds per full step cycle
-STEP_DELAY = 0.005
+STEP_DELAY = 0.005 
 
 def run_continuous():
     print("--- Starting Continuous Motor Test ---")

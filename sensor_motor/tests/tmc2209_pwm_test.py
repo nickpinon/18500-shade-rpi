@@ -1,58 +1,58 @@
 import time
 import lgpio
+from rpi_hardware_pwm import HardwarePWM
 
-# --- CHANGED: Must be a Hardware PWM Pin ---
-STEP_PIN = 18 
+# --- Pin Configuration ---
+# STEP_PIN is handled completely by HardwarePWM now (GPIO 18 = Channel 2)
 DIR_PIN = 27
 EN_PIN = 22
 
-# --- Motor & Gearbox Configuration ---
+# --- Motor Configuration ---
 MOTOR_STEPS_PER_REV = 200
 GEAR_RATIO = 51
-MICROSTEPS = 2 # Assuming you kept MS1/MS2 grounded (1/2 or Full step is fine here!)
+MICROSTEPS = 2 
 
 def get_frequency(target_rpm):
-    """Returns the required Hz (steps per second) for a target RPM."""
     if target_rpm <= 0.01:
-        return 0
+        return 10  # HardwarePWM expects a minimum frequency > 0
     total_steps_per_rev = MOTOR_STEPS_PER_REV * MICROSTEPS * GEAR_RATIO
     frequency_hz = (target_rpm * total_steps_per_rev) / 60.0
-    return int(frequency_hz) # lgpio requires frequency to be an integer
+    return int(frequency_hz)
 
 def run_test():
+    # Setup the standard GPIO pins
     chip = lgpio.gpiochip_open(0)
-    
-    # Notice we don't need to claim the STEP_PIN as an output, 
-    # lgpio.tx_pwm handles that automatically.
     lgpio.gpio_claim_output(chip, DIR_PIN, 0)
     lgpio.gpio_claim_output(chip, EN_PIN, 1)
 
+    # Initialize Pi 5 Hardware PWM on GPIO 18 (PWM Channel 2, Chip 0)
+    # We set a dummy frequency of 10Hz to start.
+    stepper_pwm = HardwarePWM(pwm_channel=2, hz=10, chip=0)
+
     try:
-        lgpio.gpio_write(chip, EN_PIN, 0) # Enable the driver
+        lgpio.gpio_write(chip, EN_PIN, 0) # Enable Driver
         time.sleep(0.5)
         
         target_rpm = 15.0
         freq = get_frequency(target_rpm)
         
-        print(f"Spinning at {target_rpm} RPM ({freq} Hz) using Hardware PWM...")
+        print(f"Spinning at {target_rpm} RPM ({freq} Hz) using True Hardware PWM...")
         
-        # Start the hardware pulses
-        # lgpio.tx_pwm(chip, pin, frequency_hz, duty_cycle_percentage)
-        # We use 50.0 for a perfect 50% ON / 50% OFF square wave
-        lgpio.tx_pwm(chip, STEP_PIN, freq, 50.0) 
+        # Apply the target frequency and start the pulse (50% Duty Cycle)
+        stepper_pwm.change_frequency(freq)
+        stepper_pwm.start(50.0) 
         
-        # Python can now just do nothing. The hardware is doing the work!
+        # Python goes to sleep, the hardware handles the stepping!
         time.sleep(5.0) 
         
         print("Stopping...")
-        # Turn off the PWM pulses
-        lgpio.tx_pwm(chip, STEP_PIN, freq, 0.0)
+        stepper_pwm.stop()
             
     except KeyboardInterrupt:
         print("\nTest stopped.")
     finally:
-        lgpio.tx_pwm(chip, STEP_PIN, 1000, 0.0) # Ensure PWM is off
-        lgpio.gpio_write(chip, EN_PIN, 1)    # Disable driver
+        stepper_pwm.stop()
+        lgpio.gpio_write(chip, EN_PIN, 1) # Disable Driver
         lgpio.gpiochip_close(chip)
 
 if __name__ == "__main__":

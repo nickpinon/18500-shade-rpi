@@ -8,7 +8,7 @@ EN_PIN = 22
 # --- Motor & Gearbox Configuration ---
 MOTOR_STEPS_PER_REV = 200
 GEAR_RATIO = 51
-MICROSTEPS = 8
+MICROSTEPS = 2
 
 # --- Test Parameters ---
 TEST_RPMS = [1.0, 5.0, 10.0, 15.0, 25.0]

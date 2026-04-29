@@ -46,12 +46,12 @@ def run_test():
         
         print("Stopping...")
         # Turn off the PWM pulses
-        lgpio.tx_pwm(chip, STEP_PIN, 0, 0.0)
+        lgpio.tx_pwm(chip, STEP_PIN, freq, 0.0)
             
     except KeyboardInterrupt:
         print("\nTest stopped.")
     finally:
-        lgpio.tx_pwm(chip, STEP_PIN, 0, 0.0) # Ensure PWM is off
+        lgpio.tx_pwm(chip, STEP_PIN, 1000, 0.0) # Ensure PWM is off
         lgpio.gpio_write(chip, EN_PIN, 1)    # Disable driver
         lgpio.gpiochip_close(chip)
 

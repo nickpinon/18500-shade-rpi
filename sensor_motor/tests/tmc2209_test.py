@@ -11,7 +11,7 @@ GEAR_RATIO = 51
 MICROSTEPS = 2
 
 # --- Test Parameters ---
-TEST_RPMS = [1.0, 5.0, 10.0, 15.0, 25.0]
+TEST_RPMS = [1.0, 5.0, 10.0, 15.0, 25.0, 60.0]
 TEST_DURATION = 3.0  # Seconds to hold at the target speed
 RAMP_DURATION = 1.5  # Seconds to smoothly transition between speeds
 

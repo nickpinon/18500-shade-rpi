@@ -66,6 +66,8 @@ def run_test():
     lgpio.gpio_claim_output(chip, HORIZ_EN_PIN, 1)
 
     try:
+        # Set direction for both motors (1 = Forward)
+        lgpio.gpio_write(chip, VERT_DIR_PIN, 1)
         # Enable both drivers (0 = Enabled)
         lgpio.gpio_write(chip, VERT_EN_PIN, 0)
         lgpio.gpio_write(chip, HORIZ_EN_PIN, 0)

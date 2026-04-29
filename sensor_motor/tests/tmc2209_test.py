@@ -7,7 +7,7 @@ EN_PIN = 22
 
 # Faster speed: 1000Hz (1ms period)
 # At 1000Hz, the output shaft will move at ~0.1 RPM (still slow, but visible!)
-STEP_DELAY = 0.0005 
+STEP_DELAY = 0.0001
 
 def run_test():
     chip = lgpio.gpiochip_open(0)

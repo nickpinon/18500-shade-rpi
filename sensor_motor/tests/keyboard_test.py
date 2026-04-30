@@ -7,7 +7,10 @@ import lgpio
 
 # Add the parent directory (sensor_motor) to the Python path
 # so we can import the orientation sensor module
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sensor_dir = os.path.join(parent_dir, 'sensor')
+sys.path.append(parent_dir)
+sys.path.append(sensor_dir)
 
 from sensor.orientation_system import OrientationTracker
 

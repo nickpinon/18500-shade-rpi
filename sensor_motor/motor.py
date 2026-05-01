@@ -28,6 +28,11 @@ STEPPER_ENABLE_INACTIVE = 1
 STEP_PULSE_SECONDS      = 0.0002
 MOVE_STEP_COUNT         = 12800
 
+# Set DIR while the driver is disabled, then wait before enabling (many boards
+# need this so up vs down are not sampled as the same direction).
+DIR_SETUP_SECONDS = 0.0002
+EN_SETUP_SECONDS = 0.00005
+
 
 class MotorController:
     AXES = {
@@ -36,7 +41,7 @@ class MotorController:
     }
 
     def __init__(self):
-        self.busy = {"vertical": False, "horizontal": False}
+        self._axis_lock = {ax: threading.Lock() for ax in self.AXES}
         self.available = lgpio is not None and _GPIO_CHIP is not None
 
         if not self.available:
@@ -65,23 +70,22 @@ class MotorController:
             print(f"[MOTOR-SIM] {axis} {'forward' if forward else 'backward'} {steps}")
             return
 
-        if self.busy.get(axis, False):
-            return
-
-        self.busy[axis] = True
         pins = self.AXES[axis]
+        with self._axis_lock[axis]:
+            # Disable → set DIR → settle → enable → step (correct direction on DRV8825/A4988-style drivers).
+            self.enable_axis(axis, False)
+            lgpio.gpio_write(_GPIO_CHIP, pins["dir"], 1 if forward else 0)
+            time.sleep(DIR_SETUP_SECONDS)
+            self.enable_axis(axis, True)
+            time.sleep(EN_SETUP_SECONDS)
 
-        self.enable_axis(axis, True)
-        lgpio.gpio_write(_GPIO_CHIP, pins["dir"], 1 if forward else 0)
+            for _ in range(steps):
+                lgpio.gpio_write(_GPIO_CHIP, pins["step"], 1)
+                time.sleep(STEP_PULSE_SECONDS)
+                lgpio.gpio_write(_GPIO_CHIP, pins["step"], 0)
+                time.sleep(STEP_PULSE_SECONDS)
 
-        for _ in range(steps):
-            lgpio.gpio_write(_GPIO_CHIP, pins["step"], 1)
-            time.sleep(STEP_PULSE_SECONDS)
-            lgpio.gpio_write(_GPIO_CHIP, pins["step"], 0)
-            time.sleep(STEP_PULSE_SECONDS)
-
-        self.enable_axis(axis, False)
-        self.busy[axis] = False
+            self.enable_axis(axis, False)
 
     def step_axis(self, axis, forward, steps=MOVE_STEP_COUNT):
         threading.Thread(
@@ -97,8 +101,6 @@ class MotorController:
 
         for axis in self.AXES:
             self.enable_axis(axis, False)
-        self.busy["vertical"] = False
-        self.busy["horizontal"] = False
 
     def cleanup(self):
         if not self.available:

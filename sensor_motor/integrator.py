@@ -29,6 +29,7 @@ MANUAL_BURST_STEPS = 5000  # match long/strong movement feel from motor_test.py
 AUTO_MIN_STEPS = 1200
 AUTO_MAX_STEPS = 5000
 AUTO_ERROR_DIVISOR = 2.0
+BLE_HOLD_PULSE_STEPS = 320  # match ble_server_motor.py behavior
 
 
 # === State ===
@@ -102,8 +103,27 @@ def send_motor_commands(error_x, error_y):
 
     print(f"[MOTOR] error_x={error_x}, error_y={error_y}")
 
+
+def pulse_manual_direction(direction: str) -> bool:
+    d = (direction or "").lower()
+    if d == "left":
+        motor.step_axis("horizontal", False, steps=BLE_HOLD_PULSE_STEPS)
+        return True
+    if d == "right":
+        motor.step_axis("horizontal", True, steps=BLE_HOLD_PULSE_STEPS)
+        return True
+    if d == "up":
+        motor.step_axis("vertical", True, steps=BLE_HOLD_PULSE_STEPS)
+        return True
+    if d == "down":
+        motor.step_axis("vertical", False, steps=BLE_HOLD_PULSE_STEPS)
+        return True
+    return False
+
 def run():
     global running
+    last_manual_move_seq = 0
+    last_manual_stop_seq = 0
 
     # -------------------------------
     # Start BLE server in background
@@ -153,23 +173,30 @@ def run():
 
             # Decide what errors to feed the motor controller
             if mode == "Manual":
-                direction = state.manual_direction
+                with state_lock:
+                    direction = state.manual_direction or ""
+                    move_seq = state.manual_move_seq
+                    stop_seq = state.manual_stop_seq
 
+                if move_seq != last_manual_move_seq:
+                    pulse_manual_direction(direction)
+                    last_manual_move_seq = move_seq
+
+                if stop_seq != last_manual_stop_seq:
+                    motor.stop_all()
+                    last_manual_stop_seq = stop_seq
+
+                # Preserve debug output shape for existing logs.
                 if direction == "left":
-                    error_x_cmd = -5
-                    error_y_cmd = 0
+                    error_x_cmd, error_y_cmd = -5, 0
                 elif direction == "right":
-                    error_x_cmd = 5
-                    error_y_cmd = 0
+                    error_x_cmd, error_y_cmd = 5, 0
                 elif direction == "up":
-                    error_x_cmd = 0
-                    error_y_cmd = 5
+                    error_x_cmd, error_y_cmd = 0, 5
                 elif direction == "down":
-                    error_x_cmd = 0
-                    error_y_cmd = -5
+                    error_x_cmd, error_y_cmd = 0, -5
                 else:
-                    error_x_cmd = 0
-                    error_y_cmd = 0
+                    error_x_cmd, error_y_cmd = 0, 0
 
             elif mode == "Auto":
                 # -------------------------------
@@ -208,7 +235,8 @@ def run():
             # -------------------------------
             # 4. Motor Output
             # -------------------------------
-            send_motor_commands(error_x_cmd, error_y_cmd)
+            if mode == "Auto":
+                send_motor_commands(error_x_cmd, error_y_cmd)
 
             # -------------------------------
             # 5. Debug Logging

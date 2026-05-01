@@ -17,7 +17,7 @@ except Exception:
 
 # ── GPIO / stepper constants (BCM numbering) ──────────────────────────────────
 VERTICAL_STEP_PIN     = 6
-VERTICAL_DIR_PIN      = 13
+VERTICAL_DIR_PIN      = 6
 VERTICAL_ENABLE_PIN   = 16
 HORIZONTAL_STEP_PIN   = 17
 HORIZONTAL_DIR_PIN    = 27

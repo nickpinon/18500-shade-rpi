@@ -13,7 +13,7 @@ except ImportError:
     sys.exit(1)
 
 STEP = 6
-DIR  = 13
+DIR  = 6
 EN   = 16
 
 # Pi 5 uses gpiochip4 for the 40-pin header; Pi 4 and earlier use gpiochip0.

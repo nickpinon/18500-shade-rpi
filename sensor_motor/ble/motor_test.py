@@ -14,8 +14,8 @@ except ImportError:
     sys.exit(1)
 
 # ── Pin assignments (BCM) ─────────────────────────────────────────────────────
-VERTICAL_STEP   = 6
-VERTICAL_DIR    = 13
+VERTICAL_STEP   = 12
+VERTICAL_DIR    = 6
 VERTICAL_EN     = 16
 
 HORIZONTAL_STEP = 17

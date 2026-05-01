@@ -12,10 +12,8 @@ Run from repo root (recommended):
   sudo python3 sensor_motor/ble/ble_server_motor.py
 
 Hold behavior: the **app** sends ``move`` repeatedly while the finger is down
-(~8–10 Hz); each ``move`` runs one motor burst on the Pi. ``stop`` on release.
-Tune ``HOLD_PULSE_STEPS`` / ``BLE_STEP_PULSE_SECONDS`` here, or the repeat
-interval in ``UmbrellaViewModel``. If bursts overlap BLE timing, some moves
-are skipped while the motor thread is busy.
+(~8–10 Hz); each ``move`` runs one motor pulse on the Pi. ``stop`` on release.
+Tune HOLD_PULSE_STEPS and the repeat interval in ``UmbrellaViewModel``.
 """
 
 from __future__ import annotations
@@ -35,9 +33,7 @@ _ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-import sensor_motor.motor as _motor_module
-
-motor = _motor_module.motor
+from sensor_motor.motor import motor
 
 try:
     from bless import (
@@ -59,13 +55,8 @@ SERVICE_UUID      = "a4f1c6a0-7d5f-4e3d-8a91-102e88d13001"
 COMMAND_CHAR_UUID = "a4f1c6a0-7d5f-4e3d-8a91-102e88d13002"
 STATUS_CHAR_UUID  = "a4f1c6a0-7d5f-4e3d-8a91-102e88d13003"
 
-# Each BLE ``move`` = one non-blocking burst (tune distance vs max speed).
-HOLD_PULSE_STEPS = 1600
-
-# Shorter than motor.py default (0.0002) so each burst finishes quicker and feels snappier.
-BLE_STEP_PULSE_SECONDS = 0.000048
-
-_motor_module.STEP_PULSE_SECONDS = BLE_STEP_PULSE_SECONDS
+# One BLE ``move`` = one non-blocking pulse (tune for feel vs speed).
+HOLD_PULSE_STEPS = 320
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -261,8 +252,8 @@ async def run() -> None:
     print(f"Command char:  {COMMAND_CHAR_UUID}", flush=True)
     print(f"Status char:   {STATUS_CHAR_UUID}", flush=True)
     print(
-        f"Motor burst: {HOLD_PULSE_STEPS} steps/move, "
-        f"{BLE_STEP_PULSE_SECONDS}s step dwell (app repeats move while holding)",
+        f"Motor pulse: {HOLD_PULSE_STEPS} steps per BLE move "
+        "(app should repeat move while holding)",
         flush=True,
     )
     print("Server running — waiting for connections...", flush=True)

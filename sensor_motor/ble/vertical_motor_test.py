@@ -7,7 +7,7 @@ import lgpio
 # SET A (from motor.py): STEP=12, DIR=13, EN=16
 # SET B (from PINOUT.md): STEP=23, DIR=24, EN=25
 V_STEP = 12 
-V_DIR  = 6
+V_DIR  = 23
 V_EN   = 16 
 
 # If the test still fails on DIR=13, change V_DIR to a completely 

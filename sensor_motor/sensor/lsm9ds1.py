@@ -124,7 +124,7 @@ import threading
 from gpiozero import DigitalInputDevice
 
 class ThreadedIMU(LSM9DS1):
-    def __init__(self, bus_id=1, interrupt_pin=17):
+    def __init__(self, bus_id=1, interrupt_pin=4):
         super().__init__(bus_id)
         self.lock = threading.Lock()
         self.data = {"accel": [0,0,0], "gyro": [0,0,0], "mag": [0,0,0]}

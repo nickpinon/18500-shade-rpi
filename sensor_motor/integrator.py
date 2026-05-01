@@ -105,8 +105,9 @@ def run():
 
     print("Initializing systems...")
     init_user_detection()
+    # IMU DRDY must not share a pin with motors — see PINOUT.md (INT = GPIO 4; H-step = GPIO 17).
     print("Initializing IMU...")
-    tracker = OrientationTracker(interrupt_pin=17)
+    tracker = OrientationTracker(interrupt_pin=4)
     tracker.start()
     print("IMU tracking active.")
 

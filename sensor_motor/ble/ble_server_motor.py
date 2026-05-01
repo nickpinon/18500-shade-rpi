@@ -11,7 +11,9 @@ Run from repo root (recommended):
   source .venv/bin/activate
   sudo python3 sensor_motor/ble/ble_server_motor.py
 
-Tune MANUAL_STEPS_PER_COMMAND if each button tap moves too little / too much.
+Hold behavior: the **app** sends ``move`` repeatedly while the finger is down
+(~8–10 Hz); each ``move`` runs one motor pulse on the Pi. ``stop`` on release.
+Tune HOLD_PULSE_STEPS and the repeat interval in ``UmbrellaViewModel``.
 """
 
 from __future__ import annotations
@@ -53,8 +55,8 @@ SERVICE_UUID      = "a4f1c6a0-7d5f-4e3d-8a91-102e88d13001"
 COMMAND_CHAR_UUID = "a4f1c6a0-7d5f-4e3d-8a91-102e88d13002"
 STATUS_CHAR_UUID  = "a4f1c6a0-7d5f-4e3d-8a91-102e88d13003"
 
-# Steps per single "move" BLE command (one tap). Increase for larger jog.
-MANUAL_STEPS_PER_COMMAND = 800
+# One BLE ``move`` = one non-blocking pulse (tune for feel vs speed).
+HOLD_PULSE_STEPS = 320
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -85,20 +87,26 @@ state_lock = threading.Lock()
 server: BlessServer | None = None
 
 
-def _apply_move_to_motors(direction: str) -> None:
-    """Map app directions to horizontal/vertical step bursts (matches integrator sign sense)."""
+def _dir_to_axis_forward(direction: str) -> tuple[str, bool] | None:
     d = (direction or "").lower()
-    n = MANUAL_STEPS_PER_COMMAND
     if d == "left":
-        motor.step_axis("horizontal", False, steps=n)
-    elif d == "right":
-        motor.step_axis("horizontal", True, steps=n)
-    elif d == "up":
-        motor.step_axis("vertical", True, steps=n)
-    elif d == "down":
-        motor.step_axis("vertical", False, steps=n)
-    else:
+        return ("horizontal", False)
+    if d == "right":
+        return ("horizontal", True)
+    if d == "up":
+        return ("vertical", True)
+    if d == "down":
+        return ("vertical", False)
+    return None
+
+
+def _motor_pulse(direction: str) -> None:
+    mapped = _dir_to_axis_forward(direction)
+    if not mapped:
         print(f"[MOTOR] unknown direction: {direction!r}", flush=True)
+        return
+    axis, forward = mapped
+    motor.step_axis(axis, forward, steps=HOLD_PULSE_STEPS)
 
 
 def read_request(characteristic: BlessGATTCharacteristic, **kwargs) -> bytearray:
@@ -168,11 +176,12 @@ def handle_command(command: dict) -> None:
             print(f"Unknown command: {command}", flush=True)
             return
 
-    # Motor actions outside state_lock (motor uses its own threads / GPIO).
+    # Motor: one pulse per ``move`` (app repeats ``move`` while finger is down).
     if cmd_type == "move":
         with state_lock:
             direction = state.manual_direction or ""
-        _apply_move_to_motors(direction)
+        if direction in {"up", "down", "left", "right"}:
+            _motor_pulse(direction)
         with state_lock:
             state.moving = False
     elif cmd_type == "stop":
@@ -242,7 +251,11 @@ async def run() -> None:
     print(f"Service UUID:  {SERVICE_UUID}", flush=True)
     print(f"Command char:  {COMMAND_CHAR_UUID}", flush=True)
     print(f"Status char:   {STATUS_CHAR_UUID}", flush=True)
-    print(f"Steps per move command: {MANUAL_STEPS_PER_COMMAND}", flush=True)
+    print(
+        f"Motor pulse: {HOLD_PULSE_STEPS} steps per BLE move "
+        "(app should repeat move while holding)",
+        flush=True,
+    )
     print("Server running — waiting for connections...", flush=True)
 
     stop_event = asyncio.Event()
@@ -259,4 +272,5 @@ if __name__ == "__main__":
     try:
         asyncio.run(run())
     finally:
+        motor.stop_all()
         motor.cleanup()

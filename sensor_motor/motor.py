@@ -36,6 +36,7 @@ class MotorController:
     }
 
     def __init__(self):
+        self.busy = {"vertical": False, "horizontal": False}
         self.available = lgpio is not None and _GPIO_CHIP is not None
 
         if not self.available:
@@ -48,7 +49,6 @@ class MotorController:
             lgpio.gpio_claim_output(_GPIO_CHIP, pins["enable"], STEPPER_ENABLE_INACTIVE)
 
         print("[MOTOR] GPIO initialized")
-        self.busy = {"vertical": False, "horizontal": False}
 
     def enable_axis(self, axis, enabled):
         if not self.available:
@@ -97,6 +97,8 @@ class MotorController:
 
         for axis in self.AXES:
             self.enable_axis(axis, False)
+        self.busy["vertical"] = False
+        self.busy["horizontal"] = False
 
     def cleanup(self):
         if not self.available:

@@ -2,9 +2,10 @@
 import time
 import threading
 from gpiozero import DigitalInputDevice
-from lsm6dsox.lsm6dsox import LSM6DSOX
-from lsm6dsox.lsm303agr import LSM303AGR
-from mahony_fusion import MahonyFilter
+
+from .lsm6dsox.lsm6dsox import LSM6DSOX
+from .lsm6dsox.lsm303agr import LSM303AGR
+from .mahony_fusion import MahonyFilter
 
 class OrientationTracker:
     def __init__(self, bus_id=1, interrupt_pin=4, declination=-8.5, mount_offset=60.0):

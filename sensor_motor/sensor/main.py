@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import time
-from orientation_system import OrientationTracker
+from .orientation_system import OrientationTracker
 
 def central_main():
     # Initialize the tracker (Requires INT1 wired to GPIO 17)

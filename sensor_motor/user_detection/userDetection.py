@@ -83,6 +83,20 @@ def get_user_errors():
     keypoints = detector.detect(frame)
 
     center = get_torso_center(keypoints)
+    if not HEADLESS:
+
+        display = frame.copy()
+
+        if center is not None:
+
+            cv2.circle(display, center, 8, (0, 255, 0), -1)
+
+        cv2.circle(display, (FRAME_W // 2, FRAME_H // 2), 8, (0, 0, 255), -1)
+
+        cv2.imshow("User Detection", display)
+
+        cv2.waitKey(10)
+
     if center is None:
         return None, None
 

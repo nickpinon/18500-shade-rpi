@@ -12,7 +12,7 @@ except ImportError:
     print("ERROR: lgpio not found. Run: sudo apt install python3-lgpio")
     sys.exit(1)
 
-STEP = 12
+STEP = 6
 DIR  = 13
 EN   = 16
 

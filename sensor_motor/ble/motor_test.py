@@ -23,7 +23,7 @@ HORIZONTAL_DIR  = 27
 HORIZONTAL_EN   = 22
 
 # Shorter pulse = faster stepping (raise if motor skips).
-PULSE_SECONDS = 0.0002
+PULSE_SECONDS = 0.0005
 # More steps = longer travel per forward/backward segment.
 STEPS = 5000
 # Forward + backward cycles per motor.

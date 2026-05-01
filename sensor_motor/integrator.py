@@ -135,6 +135,9 @@ def run():
             with state_lock:
                 mode = state.mode
 
+            sun_yaw_error = 0.0
+            sun_pitch_error = 0.0
+
             # Decide what errors to feed the motor controller
             if mode == "Manual":
                 direction = state.manual_direction

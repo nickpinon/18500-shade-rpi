@@ -7,6 +7,15 @@ from .lsm6dsox.lsm6dsox import LSM6DSOX
 from .lsm6dsox.lsm303agr import LSM303AGR
 from .mahony_fusion import MahonyFilter
 
+
+class _NominalMagStub:
+    """Used when LSM303AGR is missing or I2C fails so the rest of the stack can run."""
+
+    def read_mag(self):
+        # Non-zero norm so Mahony's magnetometer branch runs (yaw will be weak / nominal).
+        return [0.2, 0.1, 0.35]
+
+
 class OrientationTracker:
     def __init__(self, bus_id=1, interrupt_pin=4, declination=-8.5, mount_offset=60.0):
         self.declination = declination
@@ -14,7 +23,15 @@ class OrientationTracker:
         
         # Initialize Sensors
         self.imu = LSM6DSOX(bus_id=bus_id, bias_file="lsm6dsox/imu_bias.json")
-        self.mag = LSM303AGR(bus_id=bus_id, bias_file="lsm6dsox/mag_bias.json")
+        try:
+            self.mag = LSM303AGR(bus_id=bus_id, bias_file="lsm6dsox/mag_bias.json")
+        except OSError as exc:
+            print(
+                f"[IMU] Magnetometer init failed ({exc!r}). "
+                "Check I2C / wiring / 0x1E on bus. Using stub mag — yaw fusion degraded.",
+                flush=True,
+            )
+            self.mag = _NominalMagStub()
         self.fusion = MahonyFilter(kp=5.0, ki=0.0, use_new_boards=True)
         
         # Thread-safe storage for Euler angles

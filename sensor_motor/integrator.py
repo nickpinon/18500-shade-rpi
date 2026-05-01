@@ -25,6 +25,10 @@ from .sensor.main import OrientationTracker
 # Configuration
 # (speed) = LOOP_HZ × steps_per_loop
 LOOP_HZ = 10  # main loop frequency (Hz)
+MANUAL_BURST_STEPS = 5000  # match long/strong movement feel from motor_test.py
+AUTO_MIN_STEPS = 1200
+AUTO_MAX_STEPS = 5000
+AUTO_ERROR_DIVISOR = 2.0
 
 
 # === State ===
@@ -67,9 +71,17 @@ def send_motor_commands(error_x, error_y):
 
     moved = False
 
+    def _steps_for_error(err: float) -> int:
+        # Use large bursts so integrator motion feels closer to motor_test.
+        magnitude = abs(float(err))
+        if magnitude <= 5.0:
+            return MANUAL_BURST_STEPS
+        scaled = int(magnitude / AUTO_ERROR_DIVISOR)
+        return min(max(scaled, AUTO_MIN_STEPS), AUTO_MAX_STEPS)
+
     # Horizontal (pan) with smooth scaling
     if error_x is not None and error_x != 0:
-        steps = min(max(abs(error_x) // 10, 1), 50)
+        steps = _steps_for_error(error_x)
         if error_x > 0:
             motor.step_axis("horizontal", True, steps=steps)
         else:
@@ -78,7 +90,7 @@ def send_motor_commands(error_x, error_y):
 
     # Vertical (tilt) with smooth scaling
     if error_y is not None and error_y != 0:
-        steps = min(max(abs(error_y) // 10, 1), 50)
+        steps = _steps_for_error(error_y)
         if error_y > 0:
             motor.step_axis("vertical", True, steps=steps)
         else:

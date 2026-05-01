@@ -10,7 +10,6 @@ NOTE: GPIO motor control will be added later.
 """
 
 from .user_detection.userDetection import init_user_detection, get_user_errors, shutdown_user_detection
-from .sun_location import calculate_sun_direction
 
 # from ..sun_sensor import get_sun_sensor_data
 
@@ -25,6 +24,12 @@ from .sensor.main import OrientationTracker
 # Configuration
 # (speed) = LOOP_HZ × steps_per_loop
 LOOP_HZ = 10  # main loop frequency (Hz)
+MANUAL_BURST_STEPS = 5000  # match long/strong movement feel from motor_test.py
+AUTO_MIN_STEPS = 1200
+AUTO_MAX_STEPS = 5000
+AUTO_ERROR_DIVISOR = 2.0
+BLE_HOLD_PULSE_STEPS_VERTICAL = 320
+BLE_HOLD_PULSE_STEPS_HORIZONTAL = 2000  # larger horizontal burst so movement is visible
 
 
 # === State ===
@@ -34,26 +39,21 @@ running = True
 # Sun Sensor Interface
 def get_sun_sensor_data():
     """
-    @brief Retrieve sun sensor data
-
-    @return alpha (float): horizontal angle
-    @return beta (float): vertical angle
-    @return error_code (int): sensor status
+    Retrieve sun direction from BLE state (iOS-computed).
     """
-    # Use GPS + time received from iOS over BLE and compute on the Pi.
-    with state_lock:
-        latitude = state.target_latitude
-        longitude = state.target_longitude
-        timestamp = state.target_timestamp
 
-    sun = calculate_sun_direction(latitude, longitude, timestamp)
-    # update_sun_status(sun.azimuth_deg, sun.elevation_deg, sun.source)
-    alpha = sun.azimuth_deg
-    beta = sun.elevation_deg
-    # 0 = exact BLE location, 1 = fallback default location
-    error_code = 0 if sun.source == "ble_location" else 1
-    # return alpha, beta, error_code
-    return 0, 0, 0
+    with state_lock:
+        alpha = state.sun_azimuth
+        beta = state.sun_elevation
+        source = state.sun_source
+
+    # Handle missing data safely
+    if alpha is None or beta is None:
+        return 0.0, 0.0, 1  # fallback
+
+    error_code = 0 if source == "ble_location" else 1
+
+    return alpha, beta, error_code
 
 
 # Motor Command Interface
@@ -67,9 +67,17 @@ def send_motor_commands(error_x, error_y):
 
     moved = False
 
+    def _steps_for_error(err: float) -> int:
+        # Use large bursts so integrator motion feels closer to motor_test.
+        magnitude = abs(float(err))
+        if magnitude <= 5.0:
+            return MANUAL_BURST_STEPS
+        scaled = int(magnitude / AUTO_ERROR_DIVISOR)
+        return min(max(scaled, AUTO_MIN_STEPS), AUTO_MAX_STEPS)
+
     # Horizontal (pan) with smooth scaling
     if error_x is not None and error_x != 0:
-        steps = min(max(abs(error_x) // 10, 1), 50)
+        steps = _steps_for_error(error_x)
         if error_x > 0:
             motor.step_axis("horizontal", True, steps=steps)
         else:
@@ -78,7 +86,7 @@ def send_motor_commands(error_x, error_y):
 
     # Vertical (tilt) with smooth scaling
     if error_y is not None and error_y != 0:
-        steps = min(max(abs(error_y) // 10, 1), 50)
+        steps = _steps_for_error(error_y)
         if error_y > 0:
             motor.step_axis("vertical", True, steps=steps)
         else:
@@ -90,8 +98,27 @@ def send_motor_commands(error_x, error_y):
 
     print(f"[MOTOR] error_x={error_x}, error_y={error_y}")
 
+
+def pulse_manual_direction(direction: str) -> bool:
+    d = (direction or "").lower()
+    if d == "left":
+        motor.step_axis("horizontal", False, steps=BLE_HOLD_PULSE_STEPS_HORIZONTAL)
+        return True
+    if d == "right":
+        motor.step_axis("horizontal", True, steps=BLE_HOLD_PULSE_STEPS_HORIZONTAL)
+        return True
+    if d == "up":
+        motor.step_axis("vertical", True, steps=BLE_HOLD_PULSE_STEPS_VERTICAL)
+        return True
+    if d == "down":
+        motor.step_axis("vertical", False, steps=BLE_HOLD_PULSE_STEPS_VERTICAL)
+        return True
+    return False
+
 def run():
     global running
+    last_manual_move_seq = 0
+    last_manual_stop_seq = 0
 
     # -------------------------------
     # Start BLE server in background
@@ -118,7 +145,7 @@ def run():
             # -------------------------------
             # 1. Sun Sensor Data
             # -------------------------------
-            alpha, beta, sun_error = get_sun_sensor_data()
+            alpha, beta, sun_source_flag = get_sun_sensor_data()
 
             # -------------------------------
             # 2. User Detection
@@ -141,23 +168,30 @@ def run():
 
             # Decide what errors to feed the motor controller
             if mode == "Manual":
-                direction = state.manual_direction
+                with state_lock:
+                    direction = state.manual_direction or ""
+                    move_seq = state.manual_move_seq
+                    stop_seq = state.manual_stop_seq
 
+                if move_seq != last_manual_move_seq:
+                    pulse_manual_direction(direction)
+                    last_manual_move_seq = move_seq
+
+                if stop_seq != last_manual_stop_seq:
+                    motor.stop_all()
+                    last_manual_stop_seq = stop_seq
+
+                # Preserve debug output shape for existing logs.
                 if direction == "left":
-                    error_x_cmd = -5
-                    error_y_cmd = 0
+                    error_x_cmd, error_y_cmd = -5, 0
                 elif direction == "right":
-                    error_x_cmd = 5
-                    error_y_cmd = 0
+                    error_x_cmd, error_y_cmd = 5, 0
                 elif direction == "up":
-                    error_x_cmd = 0
-                    error_y_cmd = 5
+                    error_x_cmd, error_y_cmd = 0, 5
                 elif direction == "down":
-                    error_x_cmd = 0
-                    error_y_cmd = -5
+                    error_x_cmd, error_y_cmd = 0, -5
                 else:
-                    error_x_cmd = 0
-                    error_y_cmd = 0
+                    error_x_cmd, error_y_cmd = 0, 0
 
             elif mode == "Auto":
                 # -------------------------------
@@ -196,12 +230,13 @@ def run():
             # -------------------------------
             # 4. Motor Output
             # -------------------------------
-            send_motor_commands(error_x_cmd, error_y_cmd)
+            if mode == "Auto":
+                send_motor_commands(error_x_cmd, error_y_cmd)
 
             # -------------------------------
             # 5. Debug Logging
             # -------------------------------
-            print(f"[SUN] alpha={alpha:.2f}, beta={beta:.2f}, err={sun_error}")
+            print(f"[SUN] alpha={alpha:.2f}, beta={beta:.2f}, err={sun_source_flag}")
             sun_alignment_error = (sun_yaw_error**2 + sun_pitch_error**2) ** 0.5
             print(f"[SUN ALIGN] yaw_err={sun_yaw_error:.2f}°, pitch_err={sun_pitch_error:.2f}°, total_err={sun_alignment_error:.2f}°")
             print(f"[USER] err_x={error_x}, err_y={error_y}")

@@ -16,8 +16,8 @@ except Exception:
 
 
 # ── GPIO / stepper constants (BCM numbering) ──────────────────────────────────
-VERTICAL_STEP_PIN     = 6
-VERTICAL_DIR_PIN      = 13
+VERTICAL_STEP_PIN     = 12
+VERTICAL_DIR_PIN      = 6
 VERTICAL_ENABLE_PIN   = 16
 HORIZONTAL_STEP_PIN   = 17
 HORIZONTAL_DIR_PIN    = 27
@@ -26,6 +26,10 @@ HORIZONTAL_ENABLE_PIN = 22
 STEPPER_ENABLE_ACTIVE   = 0
 STEPPER_ENABLE_INACTIVE = 1
 STEP_PULSE_SECONDS      = 0.0002
+# Horizontal target stepping frequency (~3300 Hz):
+# one full step period = HIGH + LOW sleeps, so divide by 2.
+HORIZONTAL_STEP_FREQUENCY_HZ = 3300
+HORIZONTAL_STEP_PULSE_SECONDS = 1.0 / (2.0 * HORIZONTAL_STEP_FREQUENCY_HZ)
 MOVE_STEP_COUNT         = 12800
 
 
@@ -73,12 +77,17 @@ class MotorController:
 
         self.enable_axis(axis, True)
         lgpio.gpio_write(_GPIO_CHIP, pins["dir"], 1 if forward else 0)
+        pulse_seconds = (
+            HORIZONTAL_STEP_PULSE_SECONDS
+            if axis == "horizontal"
+            else STEP_PULSE_SECONDS
+        )
 
         for _ in range(steps):
             lgpio.gpio_write(_GPIO_CHIP, pins["step"], 1)
-            time.sleep(STEP_PULSE_SECONDS)
+            time.sleep(pulse_seconds)
             lgpio.gpio_write(_GPIO_CHIP, pins["step"], 0)
-            time.sleep(STEP_PULSE_SECONDS)
+            time.sleep(pulse_seconds)
 
         self.enable_axis(axis, False)
         self.busy[axis] = False

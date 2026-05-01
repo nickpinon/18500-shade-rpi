@@ -60,8 +60,8 @@ COMMAND_CHAR_UUID = "a4f1c6a0-7d5f-4e3d-8a91-102e88d13002"
 STATUS_CHAR_UUID  = "a4f1c6a0-7d5f-4e3d-8a91-102e88d13003"
 
 # ── GPIO / stepper constants (BCM numbering) ──────────────────────────────────
-VERTICAL_STEP_PIN     = 6
-VERTICAL_DIR_PIN      = 13
+VERTICAL_STEP_PIN     = 12
+VERTICAL_DIR_PIN      = 12
 VERTICAL_ENABLE_PIN   = 16
 HORIZONTAL_STEP_PIN   = 17
 HORIZONTAL_DIR_PIN    = 27
@@ -91,6 +91,8 @@ class UmbrellaState:
     sun_elevation: float | None = None
     sun_source: str | None = None
     manual_direction: str | None = None
+    manual_move_seq: int = 0
+    manual_stop_seq: int = 0
 
     def to_bytes(self) -> bytes:
         return json.dumps(asdict(self)).encode("utf-8")
@@ -143,11 +145,13 @@ def handle_command(command: dict) -> None:
             state.position = max(0, min(100, state.position + delta))
             state.moving = True
             state.manual_direction = direction
+            state.manual_move_seq += 1
             print(f"Move command received: {direction}", flush=True)
 
         elif cmd_type == "stop":
             state.moving = False
             state.manual_direction = None
+            state.manual_stop_seq += 1
             print("Stop command received", flush=True)
 
         elif cmd_type == "mode":

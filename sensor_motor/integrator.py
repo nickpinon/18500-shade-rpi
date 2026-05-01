@@ -29,7 +29,8 @@ MANUAL_BURST_STEPS = 5000  # match long/strong movement feel from motor_test.py
 AUTO_MIN_STEPS = 1200
 AUTO_MAX_STEPS = 5000
 AUTO_ERROR_DIVISOR = 2.0
-BLE_HOLD_PULSE_STEPS = 320  # match ble_server_motor.py behavior
+BLE_HOLD_PULSE_STEPS_VERTICAL = 320
+BLE_HOLD_PULSE_STEPS_HORIZONTAL = 2000  # larger horizontal burst so movement is visible
 
 
 # === State ===
@@ -107,16 +108,16 @@ def send_motor_commands(error_x, error_y):
 def pulse_manual_direction(direction: str) -> bool:
     d = (direction or "").lower()
     if d == "left":
-        motor.step_axis("horizontal", False, steps=BLE_HOLD_PULSE_STEPS)
+        motor.step_axis("horizontal", False, steps=BLE_HOLD_PULSE_STEPS_HORIZONTAL)
         return True
     if d == "right":
-        motor.step_axis("horizontal", True, steps=BLE_HOLD_PULSE_STEPS)
+        motor.step_axis("horizontal", True, steps=BLE_HOLD_PULSE_STEPS_HORIZONTAL)
         return True
     if d == "up":
-        motor.step_axis("vertical", True, steps=BLE_HOLD_PULSE_STEPS)
+        motor.step_axis("vertical", True, steps=BLE_HOLD_PULSE_STEPS_VERTICAL)
         return True
     if d == "down":
-        motor.step_axis("vertical", False, steps=BLE_HOLD_PULSE_STEPS)
+        motor.step_axis("vertical", False, steps=BLE_HOLD_PULSE_STEPS_VERTICAL)
         return True
     return False
 

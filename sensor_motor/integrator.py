@@ -10,7 +10,6 @@ NOTE: GPIO motor control will be added later.
 """
 
 from .user_detection.userDetection import init_user_detection, get_user_errors, shutdown_user_detection
-from .sun_location import calculate_sun_direction
 
 # from ..sun_sensor import get_sun_sensor_data
 
@@ -40,26 +39,21 @@ running = True
 # Sun Sensor Interface
 def get_sun_sensor_data():
     """
-    @brief Retrieve sun sensor data
-
-    @return alpha (float): horizontal angle
-    @return beta (float): vertical angle
-    @return error_code (int): sensor status
+    Retrieve sun direction from BLE state (iOS-computed).
     """
-    # Use GPS + time received from iOS over BLE and compute on the Pi.
-    with state_lock:
-        latitude = state.target_latitude
-        longitude = state.target_longitude
-        timestamp = state.target_timestamp
 
-    sun = calculate_sun_direction(latitude, longitude, timestamp)
-    # update_sun_status(sun.azimuth_deg, sun.elevation_deg, sun.source)
-    alpha = sun.azimuth_deg
-    beta = sun.elevation_deg
-    # 0 = exact BLE location, 1 = fallback default location
-    error_code = 0 if sun.source == "ble_location" else 1
-    # return alpha, beta, error_code
-    return 0, 0, 0
+    with state_lock:
+        alpha = state.sun_azimuth
+        beta = state.sun_elevation
+        source = state.sun_source
+
+    # Handle missing data safely
+    if alpha is None or beta is None:
+        return 0.0, 0.0, 1  # fallback
+
+    error_code = 0 if source == "ble_location" else 1
+
+    return alpha, beta, error_code
 
 
 # Motor Command Interface
@@ -151,7 +145,7 @@ def run():
             # -------------------------------
             # 1. Sun Sensor Data
             # -------------------------------
-            alpha, beta, sun_error = get_sun_sensor_data()
+            alpha, beta, sun_source_flag = get_sun_sensor_data()
 
             # -------------------------------
             # 2. User Detection
@@ -242,7 +236,7 @@ def run():
             # -------------------------------
             # 5. Debug Logging
             # -------------------------------
-            print(f"[SUN] alpha={alpha:.2f}, beta={beta:.2f}, err={sun_error}")
+            print(f"[SUN] alpha={alpha:.2f}, beta={beta:.2f}, err={sun_source_flag}")
             sun_alignment_error = (sun_yaw_error**2 + sun_pitch_error**2) ** 0.5
             print(f"[SUN ALIGN] yaw_err={sun_yaw_error:.2f}°, pitch_err={sun_pitch_error:.2f}°, total_err={sun_alignment_error:.2f}°")
             print(f"[USER] err_x={error_x}, err_y={error_y}")

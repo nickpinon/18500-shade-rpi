@@ -5,7 +5,7 @@ from .orientation_system import OrientationTracker
 def central_main():
     # Initialize the tracker (Requires INT1 wired to GPIO 17)
     print("Initializing Sensor Subsystem...")
-    tracker = OrientationTracker(interrupt_pin=17)
+    tracker = OrientationTracker(interrupt_pin=4)
     
     # Start background interrupt processing
     tracker.start()

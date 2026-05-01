@@ -26,8 +26,20 @@ HORIZONTAL_EN   = 22
 PULSE_SECONDS = 0.0002
 # More steps = longer travel per forward/backward segment.
 STEPS = 5000
-# How many times to repeat vertical forward + backward (longer total run).
-VERTICAL_REPEAT = 3
+# Forward + backward cycles per motor.
+MOTOR_REPEAT = 3
+
+
+def _run_both_directions(label: str, step_pin: int, dir_pin: int, en_pin: int) -> None:
+    print(f"\n=== {label} (step={step_pin}, dir={dir_pin}, en={en_pin}) ===", flush=True)
+    for rep in range(1, MOTOR_REPEAT + 1):
+        print(f"  Cycle {rep}/{MOTOR_REPEAT} — forward...", flush=True)
+        step(step_pin, dir_pin, en_pin, forward=True, steps=STEPS)
+        time.sleep(0.5)
+        print(f"  Cycle {rep}/{MOTOR_REPEAT} — backward...", flush=True)
+        step(step_pin, dir_pin, en_pin, forward=False, steps=STEPS)
+        time.sleep(0.5)
+
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 h = None
@@ -42,15 +54,11 @@ if h is None:
     print("ERROR: could not open any GPIO chip")
     sys.exit(1)
 
-for pin in [VERTICAL_STEP, VERTICAL_DIR]:
+for pin in [VERTICAL_STEP, VERTICAL_DIR, HORIZONTAL_STEP, HORIZONTAL_DIR]:
     lgpio.gpio_claim_output(h, pin, 0)
-# for pin in [VERTICAL_STEP, VERTICAL_DIR, HORIZONTAL_STEP, HORIZONTAL_DIR]:
-#     lgpio.gpio_claim_output(h, pin, 0)
 
-for pin in [VERTICAL_EN]:
+for pin in [VERTICAL_EN, HORIZONTAL_EN]:
     lgpio.gpio_claim_output(h, pin, 1)  # start disabled (HIGH)
-# for pin in [VERTICAL_EN, HORIZONTAL_EN]:
-#     lgpio.gpio_claim_output(h, pin, 1)  # start disabled (HIGH)
 
 
 def step(step_pin, dir_pin, en_pin, forward: bool, steps: int):
@@ -64,30 +72,15 @@ def step(step_pin, dir_pin, en_pin, forward: bool, steps: int):
     lgpio.gpio_write(h, en_pin, 1)    # disable
 
 
-# ── Tests (vertical only; horizontal commented out) ────────────────────────────
+# ── Tests: each motor runs forward then backward, repeated ─────────────────────
 try:
     print(
-        f"VERTICAL only: step={VERTICAL_STEP}, dir={VERTICAL_DIR}, en={VERTICAL_EN} | "
-        f"pulse={PULSE_SECONDS}s, steps={STEPS}, repeats={VERTICAL_REPEAT}",
+        f"Motor test | pulse={PULSE_SECONDS}s, steps={STEPS}, "
+        f"repeat={MOTOR_REPEAT} per axis",
         flush=True,
     )
-    for rep in range(1, VERTICAL_REPEAT + 1):
-        print(f"\n--- Vertical cycle {rep}/{VERTICAL_REPEAT} ---", flush=True)
-        print("  → forward...", flush=True)
-        step(VERTICAL_STEP, VERTICAL_DIR, VERTICAL_EN, forward=True, steps=STEPS)
-        time.sleep(0.5)
-        print("  → backward...", flush=True)
-        step(VERTICAL_STEP, VERTICAL_DIR, VERTICAL_EN, forward=False, steps=STEPS)
-        time.sleep(0.5)
-
-    # print(f"\nTesting HORIZONTAL motor (step={HORIZONTAL_STEP}, dir={HORIZONTAL_DIR}, en={HORIZONTAL_EN})")
-    # print("  → forward...")
-    # step(HORIZONTAL_STEP, HORIZONTAL_DIR, HORIZONTAL_EN, forward=True,  steps=STEPS)
-    # time.sleep(0.5)
-    # print("  → backward...")
-    # step(HORIZONTAL_STEP, HORIZONTAL_DIR, HORIZONTAL_EN, forward=False, steps=STEPS)
-    # time.sleep(0.5)
-
+    _run_both_directions("VERTICAL", VERTICAL_STEP, VERTICAL_DIR, VERTICAL_EN)
+    _run_both_directions("HORIZONTAL", HORIZONTAL_STEP, HORIZONTAL_DIR, HORIZONTAL_EN)
     print("\nDone.", flush=True)
 
 except KeyboardInterrupt:
@@ -95,5 +88,5 @@ except KeyboardInterrupt:
 
 finally:
     lgpio.gpio_write(h, VERTICAL_EN, 1)
-    # lgpio.gpio_write(h, HORIZONTAL_EN, 1)
+    lgpio.gpio_write(h, HORIZONTAL_EN, 1)
     lgpio.gpiochip_close(h)
